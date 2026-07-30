@@ -135,6 +135,11 @@ function App() {
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
   const [currentHash, setCurrentHash] = useState(window.location.hash);
   
+  // Parse current room information
+  const roomPathMatch = currentPath.match(/^\/room\/([^\/]+)/);
+  const roomId = roomPathMatch ? roomPathMatch[1] : null;
+  const encryptionKeyB64 = currentHash.startsWith('#') ? currentHash.slice(1) : '';
+  
   // App states
   const [nickname, setNickname] = useState(() => {
     return localStorage.getItem('ghost_nickname') || generateRandomGhostName();
@@ -249,10 +254,7 @@ function App() {
     setMessages((prev) => prev.filter(m => m.id !== id));
   };
 
-  // Parse current room information
-  const roomPathMatch = currentPath.match(/^\/room\/([^\/]+)/);
-  const roomId = roomPathMatch ? roomPathMatch[1] : null;
-  const encryptionKeyB64 = currentHash.startsWith('#') ? currentHash.slice(1) : '';
+  // Room information parsed at the top
 
   // Synchronize browser history / URL updates
   useEffect(() => {
