@@ -635,7 +635,7 @@ function App() {
             }
 
             setMessages((prev) => [...prev, {
-              id: Math.random().toString(36).substring(2, 9),
+              id: payload.id || Math.random().toString(36).substring(2, 9),
               senderId,
               senderName: payload.senderName || 'Anonymous',
               type: payload.type,
@@ -841,6 +841,7 @@ function App() {
 
     try {
       const payload = {
+        id: Math.random().toString(36).substring(2, 9),
         senderName: nickname,
         timestamp: new Date().toISOString(),
         selfDestruct: activeTimer,
@@ -886,7 +887,7 @@ function App() {
 
       // Add to local message history
       setMessages((prev) => [...prev, {
-        id: Math.random().toString(36).substring(2, 9),
+        id: payload.id,
         senderId: socketRef.current.id,
         senderName: nickname,
         type: payload.type,
@@ -1219,7 +1220,13 @@ function App() {
             <button className="btn-icon" onClick={() => setMobileSidebarOpen(true)}>
               ☰
             </button>
-            <div className="room-title">👻 Ghost Chat</div>
+            <div className="room-title" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div>👻 Ghost Chat</div>
+              <div style={{ fontSize: '0.7rem', fontWeight: 'normal', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '2px' }}>
+                <span className={`pulse-dot ${connectionStatus === 'connected' ? '' : 'disconnected'}`} style={{ width: '5px', height: '5px' }}></span>
+                {roomUsers.length} online
+              </div>
+            </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button className="btn-icon btn-leave" onClick={handlePanic} style={{ color: 'var(--color-error)', borderColor: 'var(--color-error)' }} title="PANIC WIPE">
                 🚨
@@ -1414,6 +1421,14 @@ function App() {
                     type="submit" 
                     disabled={(!inputText.trim() && !attachment) || fileUploading || !isConnected}
                     title="Send Message"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onTouchStart={(e) => e.preventDefault()}
+                    onTouchEnd={(e) => {
+                      e.preventDefault();
+                      if ((inputText.trim() || attachment) && !fileUploading && isConnected) {
+                        handleSendMessage(e);
+                      }
+                    }}
                   >
                     {fileUploading ? (
                       <svg className="spinner-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
