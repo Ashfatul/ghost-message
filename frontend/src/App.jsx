@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import { io } from 'socket.io-client';
 import { 
   generateKey, 
@@ -30,10 +31,13 @@ export const getAvatarForSocket = (socketId) => {
 
 
 // Sub-component for individual message bubbles handling E2EE self-destruction
-function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, onReply }) {
+function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, onReply, onReact }) {
   const [timeLeft, setTimeLeft] = useState(msg.selfDestruct || null);
   const [isExpiring, setIsExpiring] = useState(false);
   const [showTime, setShowTime] = useState(false);
+  const [isRevealed, setIsRevealed] = useState(msg.isSelf || !msg.selfDestruct);
+  const [showPicker, setShowPicker] = useState(false);
+  const emojis = ['👻', '🔥', '👍', '❤️', '😂', '💀'];
 
   useEffect(() => {
     if (!msg.selfDestruct) return;
@@ -84,15 +88,30 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
       )}
       <div className="message-row">
         {msg.isSelf && (
-          <button 
-            className="btn-reply-bubble" 
-            onClick={onReply}
-            title="Reply to this message"
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-              <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
-            </svg>
-          </button>
+          <div style={{ display: 'flex', gap: '4px', position: 'relative' }}>
+            <button className="btn-reply-bubble" onClick={() => setShowPicker(!showPicker)} title="React">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+                <line x1="9" y1="9" x2="9.01" y2="9"></line>
+                <line x1="15" y1="9" x2="15.01" y2="9"></line>
+              </svg>
+            </button>
+            <button 
+              className="btn-reply-bubble" 
+              onClick={onReply}
+              title="Reply to this message"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
+              </svg>
+            </button>
+            {showPicker && (
+              <div className="reaction-picker" style={{ position: 'absolute', top: '-40px', left: '0', display: 'flex', gap: '8px', background: 'rgba(15,23,42,0.95)', padding: '6px 12px', borderRadius: '16px', zIndex: 10, border: '1px solid var(--color-border)', boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>
+                {emojis.map(e => <span key={e} style={{ cursor: 'pointer', fontSize: '1.2rem', transition: 'transform 0.1s' }} onMouseOver={ev => ev.target.style.transform = 'scale(1.2)'} onMouseOut={ev => ev.target.style.transform = 'scale(1)'} onClick={() => { onReact(msg.id, e); setShowPicker(false); }}>{e}</span>)}
+              </div>
+            )}
+          </div>
         )}
         <div 
           className="message-bubble"
@@ -144,6 +163,10 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
               >
                 <img src={msg.file.url} alt={msg.file.name} />
               </div>
+            ) : msg.file.type.startsWith('audio/') ? (
+              <div className="audio-player-card" onClick={(e) => e.stopPropagation()} style={{ marginTop: '0.5rem', background: 'rgba(0,0,0,0.2)', padding: '0.5rem', borderRadius: '8px' }}>
+                <audio controls src={msg.file.url} style={{ width: '100%', minWidth: '200px' }} />
+              </div>
             ) : (
               <div className="file-attachment-card" onClick={(e) => e.stopPropagation()}>
                 <span className="file-icon">📁</span>
@@ -161,18 +184,44 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
               </div>
             )
           )}
+
+          {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+            <div className="message-reactions" style={{ display: 'flex', gap: '4px', marginTop: '6px', flexWrap: 'wrap' }}>
+              {Object.entries(msg.reactions).map(([emoji, count]) => (
+                <div key={emoji} style={{ background: 'rgba(0, 242, 254, 0.1)', border: '1px solid rgba(0,242,254,0.2)', padding: '2px 6px', borderRadius: '12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span>{emoji}</span> 
+                  <span style={{ color: 'var(--color-primary)', fontWeight: 'bold' }}>{count}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {!msg.isSelf && (
-          <button 
-            className="btn-reply-bubble" 
-            onClick={onReply}
-            title="Reply to this message"
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-              <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
-            </svg>
-          </button>
+          <div style={{ display: 'flex', gap: '4px', position: 'relative' }}>
+            <button 
+              className="btn-reply-bubble" 
+              onClick={onReply}
+              title="Reply to this message"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
+              </svg>
+            </button>
+            <button className="btn-reply-bubble" onClick={() => setShowPicker(!showPicker)} title="React">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+                <line x1="9" y1="9" x2="9.01" y2="9"></line>
+                <line x1="15" y1="9" x2="15.01" y2="9"></line>
+              </svg>
+            </button>
+            {showPicker && (
+              <div className="reaction-picker" style={{ position: 'absolute', top: '-40px', right: '0', display: 'flex', gap: '8px', background: 'rgba(15,23,42,0.95)', padding: '6px 12px', borderRadius: '16px', zIndex: 10, border: '1px solid var(--color-border)', boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>
+                {emojis.map(e => <span key={e} style={{ cursor: 'pointer', fontSize: '1.2rem', transition: 'transform 0.1s' }} onMouseOver={ev => ev.target.style.transform = 'scale(1.2)'} onMouseOut={ev => ev.target.style.transform = 'scale(1)'} onClick={() => { onReact(msg.id, e); setShowPicker(false); }}>{e}</span>)}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -217,6 +266,13 @@ function App() {
   });
   const [unreadCount, setUnreadCount] = useState(0);
   const [replyingTo, setReplyingTo] = useState(null);
+  const [showQR, setShowQR] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [showInputEmojiPicker, setShowInputEmojiPicker] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+
+  const inputEmojis = ['😀', '😂', '🔥', '👍', '❤️', '👻', '💀', '👽', '👀', '🎉', '💡', '🤔', '😎', '😡', '😭'];
   
   // Refs
   const socketRef = useRef(null);
@@ -504,6 +560,17 @@ function App() {
             );
             
             const payload = JSON.parse(payloadStr);
+
+            if (payload.type === 'reaction') {
+              setMessages((prev) => prev.map(m => {
+                if (m.id === payload.messageId) {
+                  const r = m.reactions || {};
+                  return { ...m, reactions: { ...r, [payload.emoji]: (r[payload.emoji] || 0) + 1 } };
+                }
+                return m;
+              }));
+              return;
+            }
             
             let fileInfo = null;
             if (payload.type === 'file' && payload.file) {
@@ -637,16 +704,74 @@ function App() {
     navigate('/');
   };
 
+  // Action: Panic Button
+  const handlePanic = () => {
+    localStorage.clear();
+    sessionStorage.clear();
+    window.location.replace('https://www.google.com');
+  };
+
+  // Action: Voice Note toggle
+  const toggleRecording = async () => {
+    if (isRecording) {
+      if (mediaRecorderRef.current) {
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      }
+      setIsRecording(false);
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorderRef.current = new MediaRecorder(stream);
+        audioChunksRef.current = [];
+        mediaRecorderRef.current.ondataavailable = (e) => audioChunksRef.current.push(e.data);
+        mediaRecorderRef.current.onstop = () => {
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          const file = new File([audioBlob], `voice-note-${Math.floor(Date.now() / 1000)}.webm`, { type: 'audio/webm' });
+          setAttachment(file);
+        };
+        mediaRecorderRef.current.start();
+        setIsRecording(true);
+      } catch (err) {
+        alert("Microphone access denied or unavailable.");
+      }
+    }
+  };
+
+  // Action: Add Emoji Reaction
+  const handleReact = async (msgId, emoji) => {
+    // Optimistic UI Update
+    setMessages(prev => prev.map(m => {
+      if (m.id === msgId) {
+        const r = m.reactions || {};
+        return { ...m, reactions: { ...r, [emoji]: (r[emoji] || 0) + 1 } };
+      }
+      return m;
+    }));
+
+    if (!socketRef.current || connectionStatus !== 'connected') return;
+
+    try {
+      const payload = {
+        type: 'reaction',
+        messageId: msgId,
+        emoji: emoji,
+        senderName: nickname
+      };
+      const encryptedMsgPayload = await encryptText(JSON.stringify(payload), cryptoKeyRef.current);
+      socketRef.current.emit('send-message', {
+        roomId,
+        encryptedPayload: encryptedMsgPayload
+      });
+    } catch (err) {
+      console.error("Failed to send reaction:", err);
+    }
+  };
+
   // Trigger typing notification
   const handleInputChange = (e) => {
     setInputText(e.target.value);
     
-    // Auto-adjust textarea height
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(120, textareaRef.current.scrollHeight)}px`;
-    }
-
     if (!socketRef.current || connectionStatus !== 'connected') return;
 
     if (!isTypingRef.current) {
@@ -654,13 +779,17 @@ function App() {
       socketRef.current.emit('typing', { roomId, isTyping: true });
     }
 
-    // Debounce: clear typing after 1.5 seconds of silence
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     
     typingTimeoutRef.current = setTimeout(() => {
       isTypingRef.current = false;
       socketRef.current.emit('typing', { roomId, isTyping: false });
-    }, 1500);
+    }, 2000);
+  };
+
+  const handleEmojiSelect = (emoji) => {
+    setInputText(prev => prev + emoji);
+    setShowInputEmojiPicker(false);
   };
 
   const handleKeyDown = (e) => {
@@ -962,7 +1091,20 @@ function App() {
           </div>
 
           <div className="room-link-card">
-            <h3>Invite Peer</h3>
+            <h3 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              Invite Peer
+              <button 
+                onClick={() => setShowQR(!showQR)}
+                style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 'bold' }}
+              >
+                {showQR ? 'Hide QR' : 'Show QR'}
+              </button>
+            </h3>
+            {showQR && (
+              <div style={{ background: '#fff', padding: '10px', borderRadius: '8px', marginBottom: '10px', display: 'flex', justifyContent: 'center' }}>
+                <QRCodeSVG value={window.location.href} size={150} />
+              </div>
+            )}
             <div className="room-link-box">
               <input 
                 className="room-link-input" 
@@ -1031,6 +1173,9 @@ function App() {
           </div>
 
           <div className="sidebar-footer">
+            <button className="btn-secondary btn-leave" onClick={handlePanic} style={{ borderColor: 'var(--color-error)', color: 'var(--color-error)' }}>
+              🚨 Panic Wipe
+            </button>
             <button className="btn-secondary btn-leave" onClick={handleLeaveRoom}>
               🚪 Leave Room
             </button>
@@ -1045,9 +1190,14 @@ function App() {
               ☰
             </button>
             <div className="room-title">👻 Ghost Chat</div>
-            <button className="btn-icon btn-leave" onClick={handleLeaveRoom}>
-              🚪
-            </button>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn-icon btn-leave" onClick={handlePanic} style={{ color: 'var(--color-error)', borderColor: 'var(--color-error)' }} title="PANIC WIPE">
+                🚨
+              </button>
+              <button className="btn-icon btn-leave" onClick={handleLeaveRoom}>
+                🚪
+              </button>
+            </div>
           </div>
 
           {/* Messages List */}
@@ -1085,6 +1235,7 @@ function App() {
                     onImageClick={(url, name) => setLightboxImage({ url, name })}
                     isImageFile={isImageFile}
                     onReply={() => handleReplyClick(msg)}
+                    onReact={handleReact}
                   />
                 );
               })
@@ -1159,6 +1310,57 @@ function App() {
                   onChange={handleFileChange}
                   disabled={fileUploading || !isConnected}
                 />
+                <button 
+                  type="button"
+                  className={`btn-attach ${isRecording ? 'recording' : ''}`}
+                  onClick={toggleRecording}
+                  disabled={!isConnected}
+                  title={isRecording ? "Stop Recording" : "Record Voice Note"}
+                  style={isRecording ? { color: 'var(--color-error)' } : {}}
+                >
+                  {isRecording ? '🛑' : '🎤'}
+                </button>
+
+                <div style={{ position: 'relative' }}>
+                  <button 
+                    type="button"
+                    className="btn-attach"
+                    onClick={() => setShowInputEmojiPicker(!showInputEmojiPicker)}
+                    disabled={!isConnected}
+                    title="Add Emoji"
+                  >
+                    😀
+                  </button>
+                  {showInputEmojiPicker && (
+                    <div className="input-emoji-picker" style={{
+                      position: 'absolute',
+                      bottom: '100%',
+                      left: '0',
+                      marginBottom: '10px',
+                      background: 'var(--color-bg-secondary)',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: '8px',
+                      padding: '8px',
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(5, 1fr)',
+                      gap: '4px',
+                      zIndex: 100,
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
+                    }}>
+                      {inputEmojis.map(emoji => (
+                        <span 
+                          key={emoji} 
+                          style={{ cursor: 'pointer', fontSize: '1.25rem', padding: '4px', textAlign: 'center', transition: 'transform 0.1s' }}
+                          onMouseOver={ev => ev.target.style.transform = 'scale(1.2)'} 
+                          onMouseOut={ev => ev.target.style.transform = 'scale(1)'}
+                          onClick={() => handleEmojiSelect(emoji)}
+                        >
+                          {emoji}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                 <textarea
                   ref={textareaRef}
