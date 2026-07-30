@@ -471,18 +471,11 @@ button, input {
   font-size: 0.9rem;
 }
 
-.user-avatar-dot {
-  width: 8px;
-  height: 8px;
-  background-color: var(--color-primary);
-  border-radius: 50%;
+.user-avatar-icon {
+  font-size: 1.15rem;
+  line-height: 1;
   display: inline-block;
-  box-shadow: 0 0 6px var(--color-primary);
-}
-
-.user-list-item.self .user-avatar-dot {
-  background-color: var(--color-accent);
-  box-shadow: 0 0 6px var(--color-accent);
+  margin-right: 0.25rem;
 }
 
 .user-list-item.self span {
@@ -572,8 +565,8 @@ button, input {
   padding: 1.5rem;
   overflow-y: auto;
   display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
+  flex-direction: column-reverse;
+  gap: 1.25rem; /* Increased gap between message blocks */
 }
 
 /* Message Bubbles */
@@ -611,6 +604,19 @@ button, input {
   justify-content: flex-end;
 }
 
+.message-sender-avatar {
+  font-size: 1.1rem;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 50%;
+  margin-right: 0.35rem;
+}
+
 .message-sender {
   font-weight: 600;
   color: var(--color-text-main);
@@ -626,26 +632,33 @@ button, input {
 }
 
 .message-bubble {
-  padding: 0.45rem 0.75rem;
-  border-radius: 12px;
+  padding: 0.5rem 0.85rem;
+  border-radius: 18px;
   font-size: 0.95rem;
-  line-height: 1.4;
+  line-height: 1.45;
   word-break: break-word;
   position: relative;
   display: inline-block;
   max-width: 100%;
+  overflow: hidden;
+}
+
+.message-text {
+  white-space: pre-wrap;
 }
 
 .message-bubble-wrapper.self .message-bubble {
-  background: linear-gradient(135deg, rgba(0, 242, 254, 0.12) 0%, rgba(0, 198, 255, 0.04) 100%);
-  border: 1px solid rgba(0, 242, 254, 0.18);
-  border-top-right-radius: 4px;
+  background: linear-gradient(135deg, rgba(0, 242, 254, 0.08) 0%, rgba(99, 102, 241, 0.04) 100%);
+  border: 1px solid rgba(0, 242, 254, 0.15);
+  border-bottom-right-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 242, 254, 0.03);
 }
 
 .message-bubble-wrapper.peer .message-bubble {
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid var(--color-border);
-  border-top-left-radius: 4px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0.01) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom-left-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 /* Secure File Card */
@@ -872,12 +885,24 @@ button, input {
   flex: 1;
   background: transparent;
   border: none;
-  height: 40px;
-  padding: 0 0.5rem;
+  height: auto;
+  min-height: 40px;
+  max-height: 120px;
+  padding: 8px 0.5rem;
   color: var(--color-text-main);
   font-size: 0.95rem;
   outline: none;
   width: 100%;
+  resize: none;
+  line-height: 1.4;
+  font-family: inherit;
+  overflow-y: auto;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.chat-input-field::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Opera */
 }
 
 .chat-input-field::placeholder {
@@ -1016,27 +1041,29 @@ button, input {
 
 /* Self Destruct Visual Indicators inside Chat Feed */
 .self-destruct-indicator {
+  font-family: var(--font-mono);
   font-size: 0.7rem;
   color: var(--color-error);
   background: var(--color-error-glow);
   border: 1px solid rgba(255, 74, 107, 0.15);
-  padding: 0.1rem 0.4rem;
+  padding: 0.1rem 0.3rem;
   border-radius: 4px;
   margin-left: 0.5rem;
   display: inline-flex;
   align-items: center;
-  gap: 0.15rem;
+  justify-content: center;
+  min-width: 36px;
+  text-align: center;
+  box-sizing: border-box;
 }
 
 .self-destruct-progress-bar {
   position: absolute;
-  top: 0;
+  bottom: 0;
   left: 0;
-  height: 3px;
+  height: 2px;
   background: linear-gradient(90deg, var(--color-primary), var(--color-accent));
   transition: width 1s linear;
-  border-top-left-radius: 16px;
-  border-top-right-radius: 16px;
 }
 
 .message-bubble-wrapper.dissolving {
@@ -1257,9 +1284,8 @@ button, input {
   }
 
   .chat-input-field {
-    padding: 0.6rem 0.25rem;
+    padding: 8px 0.25rem;
     font-size: 0.9rem;
-    height: 36px;
   }
 
   .btn-attach {
@@ -1364,24 +1390,27 @@ button, input {
 
 /* Reply button inside message bubble layout */
 .btn-reply-bubble {
-  background: transparent;
-  border: none;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--color-text-muted);
   cursor: pointer;
-  font-size: 0.85rem;
-  opacity: 0;
-  transition: var(--transition-smooth);
-  padding: 4px;
-  line-height: 1;
+  width: 32px;
+  height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-.message-bubble-wrapper:hover .btn-reply-bubble {
-  opacity: 0.5;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+  opacity: 0.65; /* always visible but dimmed */
+  flex-shrink: 0;
 }
 .btn-reply-bubble:hover {
-  opacity: 1 !important;
-  transform: scale(1.2);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  opacity: 1;
+  transform: scale(1.08);
+  box-shadow: 0 0 10px rgba(0, 242, 254, 0.25);
 }
 
 /* Reply Preview Bar above the chat input form */
@@ -1438,32 +1467,59 @@ button, input {
   display: flex;
   align-items: center;
   max-width: 100%;
+  gap: 0.5rem;
 }
 
 /* Grouped consecutive message bubble pull-up and styling */
 .message-bubble-wrapper.grouped {
-  margin-top: -0.95rem;
+  margin-top: -0.75rem; /* Offsets some of the gap to still look grouped but have a small gap */
 }
 
 .message-bubble-wrapper.self.grouped .message-bubble {
-  border-top-right-radius: 12px;
-  border-bottom-right-radius: 4px;
+  border-top-right-radius: 6px;
+  border-bottom-right-radius: 6px;
 }
 
 .message-bubble-wrapper.peer.grouped .message-bubble {
-  border-top-left-radius: 12px;
-  border-bottom-left-radius: 4px;
+  border-top-left-radius: 6px;
+  border-bottom-left-radius: 6px;
 }
 
-/* Self-destruct indicator in-line for grouped messages */
-.self-destruct-indicator-inline {
+/* Self-destruct indicator inside the bubble content row */
+.self-destruct-indicator-inside {
+  font-family: var(--font-mono);
   font-size: 0.65rem;
   color: var(--color-error);
   background: var(--color-error-glow);
-  padding: 0.05rem 0.25rem;
-  border-radius: 4px;
-  margin-left: 0.45rem;
-  vertical-align: middle;
+  border: 1px solid rgba(255, 74, 107, 0.15);
+  padding: 0.15rem 0.35rem;
+  border-radius: 6px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  text-align: center;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  user-select: none;
+  margin-top: 2px;
+}
+
+/* Flex wrapper inside the bubble for text and timer */
+.message-bubble-body {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+/* Toggleable inline message time stamp style */
+.message-time-inline {
+  display: inline-block;
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.35);
+  margin-left: 0.55rem;
+  vertical-align: middle;
+  user-select: none;
+  animation: fadeIn 0.15s ease-out;
 }

@@ -18,10 +18,22 @@ const generateRandomGhostName = () => {
   return `${name}_${num}`;
 };
 
+const avatars = ["👽", "👻", "🤖", "🎃", "👾", "🤡", "👹", "👺", "💀", "😺", "🦊", "🐉", "🦉", "🦄"];
+export const getAvatarForSocket = (socketId) => {
+  if (!socketId) return "👻";
+  let hash = 0;
+  for (let i = 0; i < socketId.length; i++) {
+    hash = socketId.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return avatars[Math.abs(hash) % avatars.length];
+};
+
+
 // Sub-component for individual message bubbles handling E2EE self-destruction
 function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, onReply }) {
   const [timeLeft, setTimeLeft] = useState(msg.selfDestruct || null);
   const [isExpiring, setIsExpiring] = useState(false);
+  const [showTime, setShowTime] = useState(false);
 
   useEffect(() => {
     if (!msg.selfDestruct) return;
@@ -66,15 +78,8 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
     <div className={`message-bubble-wrapper ${msg.isSelf ? 'self' : 'peer'} ${isExpiring ? 'dissolving' : ''} ${isGrouped ? 'grouped' : ''}`}>
       {!isGrouped && (
         <div className="message-meta">
+          <span className="message-sender-avatar">{getAvatarForSocket(msg.senderId)}</span>
           <span className="message-sender">{msg.isSelf ? 'You' : msg.senderName}</span>
-          <span className="message-meta-time">
-            {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </span>
-          {msg.selfDestruct && timeLeft !== null && (
-            <span className="self-destruct-indicator" title="Self-destructing message">
-              {formatTimeLeft(timeLeft)}
-            </span>
-          )}
         </div>
       )}
       <div className="message-row">
@@ -84,10 +89,17 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
             onClick={onReply}
             title="Reply to this message"
           >
-            ↩️
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
+            </svg>
           </button>
         )}
-        <div className="message-bubble">
+        <div 
+          className="message-bubble"
+          onClick={() => setShowTime(!showTime)}
+          style={{ cursor: 'pointer' }}
+          title="Click to show/hide timestamp"
+        >
           {msg.selfDestruct && timeLeft !== null && (
             <div 
               className="self-destruct-progress-bar" 
@@ -97,15 +109,25 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
 
           {msg.replyTo && (
             <div className="message-reply-quote">
-              <span className="reply-quote-sender">{msg.replyTo.senderName}</span>
+              <span className="reply-quote-sender">
+                {getAvatarForSocket(msg.replyTo.senderId)} {msg.replyTo.senderName}
+              </span>
               <span className="reply-quote-text">{msg.replyTo.text}</span>
             </div>
           )}
           
-          <div className="message-text">
-            {msg.text}
-            {isGrouped && msg.selfDestruct && timeLeft !== null && (
-              <span className="self-destruct-indicator-inline">
+          <div className="message-bubble-body">
+            <div className="message-text">
+              {msg.text}
+              {showTime && (
+                <span className="message-time-inline">
+                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+            </div>
+
+            {msg.selfDestruct && timeLeft !== null && (
+              <span className="self-destruct-indicator-inside" title="Self-destructing message">
                 {formatTimeLeft(timeLeft)}
               </span>
             )}
@@ -115,12 +137,15 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
             isImageFile(msg.file.type) ? (
               <div 
                 className="encrypted-image-preview"
-                onClick={() => onImageClick(msg.file.url, msg.file.name)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onImageClick(msg.file.url, msg.file.name);
+                }}
               >
                 <img src={msg.file.url} alt={msg.file.name} />
               </div>
             ) : (
-              <div className="file-attachment-card">
+              <div className="file-attachment-card" onClick={(e) => e.stopPropagation()}>
                 <span className="file-icon">📁</span>
                 <div className="file-info">
                   <div className="file-name" title={msg.file.name}>{msg.file.name}</div>
@@ -137,13 +162,16 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
             )
           )}
         </div>
+
         {!msg.isSelf && (
           <button 
             className="btn-reply-bubble" 
             onClick={onReply}
             title="Reply to this message"
           >
-            ↩️
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
+            </svg>
           </button>
         )}
       </div>
@@ -199,6 +227,7 @@ function App() {
   const objectUrlsRef = useRef([]);
   const roomUsersRef = useRef([]);
   const prevMessagesCountRef = useRef(0);
+  const textareaRef = useRef(null);
   
   const destructTimeInputRef = useRef(destructTimeInput);
 
@@ -297,20 +326,8 @@ function App() {
     };
   }, []);
 
-  // Scroll to bottom when new messages arrive (avoid jumping when self-destructing)
-  useEffect(() => {
-    if (messages.length > prevMessagesCountRef.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-    prevMessagesCountRef.current = messages.length;
-  }, [messages]);
-
-  // Scroll to bottom when a peer starts typing
-  useEffect(() => {
-    if (Object.keys(typingUsers).length > 0) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [typingUsers]);
+  // In column-reverse layout, the browser naturally anchors to the bottom.
+  // We no longer need manual scrollIntoView calls.
 
   // Navigate helper
   const navigate = (path, hash = '') => {
@@ -624,6 +641,12 @@ function App() {
   const handleInputChange = (e) => {
     setInputText(e.target.value);
     
+    // Auto-adjust textarea height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.min(120, textareaRef.current.scrollHeight)}px`;
+    }
+
     if (!socketRef.current || connectionStatus !== 'connected') return;
 
     if (!isTypingRef.current) {
@@ -638,6 +661,13 @@ function App() {
       isTypingRef.current = false;
       socketRef.current.emit('typing', { roomId, isTyping: false });
     }, 1500);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage(e);
+    }
   };
 
   // Action: Send Message (Text & File)
@@ -661,6 +691,7 @@ function App() {
         selfDestruct: activeTimer,
         replyTo: replyingTo ? {
           id: replyingTo.id,
+          senderId: replyingTo.senderId,
           senderName: replyingTo.senderName,
           text: replyingTo.text
         } : null
@@ -716,12 +747,23 @@ function App() {
       setInputText('');
       setAttachment(null);
       setReplyingTo(null);
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
 
     } catch (err) {
       console.error("Failed to encrypt and send message:", err);
       alert("Failed to secure and encrypt message. Please check connection.");
     } finally {
       setFileUploading(false);
+    }
+  };
+
+  // Action: Focus text input on reply click
+  const handleReplyClick = (msg) => {
+    setReplyingTo(msg);
+    if (textareaRef.current) {
+      textareaRef.current.focus();
     }
   };
 
@@ -894,6 +936,31 @@ function App() {
             </div>
           </div>
 
+          <div className="user-list-section">
+            <h3>
+              Active Peers
+              <span className="user-count-badge">{roomUsers.length}</span>
+            </h3>
+            <div className="user-list-scroll">
+              {[...roomUsers]
+                .sort((a, b) => {
+                  if (a.socketId === socketRef.current?.id) return -1;
+                  if (b.socketId === socketRef.current?.id) return 1;
+                  return a.nickname.localeCompare(b.nickname);
+                })
+                .map((user) => (
+                  <div 
+                    key={user.socketId} 
+                    className={`user-list-item ${user.socketId === socketRef.current?.id ? 'self' : ''}`}
+                  >
+                    <span className="user-avatar-icon">{getAvatarForSocket(user.socketId)}</span>
+                    <span>{user.nickname}</span>
+                  </div>
+                ))
+              }
+            </div>
+          </div>
+
           <div className="room-link-card">
             <h3>Invite Peer</h3>
             <div className="room-link-box">
@@ -963,31 +1030,6 @@ function App() {
             </div>
           </div>
 
-          <div className="user-list-section">
-            <h3>
-              Active Peers
-              <span className="user-count-badge">{roomUsers.length}</span>
-            </h3>
-            <div className="user-list-scroll">
-              {[...roomUsers]
-                .sort((a, b) => {
-                  if (a.socketId === socketRef.current?.id) return -1;
-                  if (b.socketId === socketRef.current?.id) return 1;
-                  return a.nickname.localeCompare(b.nickname);
-                })
-                .map((user) => (
-                  <div 
-                    key={user.socketId} 
-                    className={`user-list-item ${user.socketId === socketRef.current?.id ? 'self' : ''}`}
-                  >
-                    <span className="user-avatar-dot"></span>
-                    <span>{user.nickname}</span>
-                  </div>
-                ))
-              }
-            </div>
-          </div>
-
           <div className="sidebar-footer">
             <button className="btn-secondary btn-leave" onClick={handleLeaveRoom}>
               🚪 Leave Room
@@ -1017,7 +1059,8 @@ function App() {
                 <p>Share the secure link above with a peer to begin chatting anonymously. All messages are encrypted locally.</p>
               </div>
             ) : (
-              messages.map((msg, index) => {
+              [...messages].reverse().map((msg, revIndex, arr) => {
+                const originalIndex = arr.length - 1 - revIndex;
                 if (msg.type === 'system') {
                   return (
                     <div key={msg.id} className="message-system">
@@ -1027,7 +1070,7 @@ function App() {
                 }
 
                 // Group successive messages from the same sender within 2 minutes
-                const prevMsg = index > 0 ? messages[index - 1] : null;
+                const prevMsg = originalIndex > 0 ? messages[originalIndex - 1] : null;
                 const isGrouped = prevMsg && 
                                   prevMsg.type !== 'system' && 
                                   prevMsg.senderId === msg.senderId &&
@@ -1041,12 +1084,11 @@ function App() {
                     onDestroy={() => deleteMessage(msg.id)} 
                     onImageClick={(url, name) => setLightboxImage({ url, name })}
                     isImageFile={isImageFile}
-                    onReply={() => setReplyingTo(msg)}
+                    onReply={() => handleReplyClick(msg)}
                   />
                 );
               })
             )}
-            <div ref={messagesEndRef} />
           </div>
 
           {/* Typing status bar */}
@@ -1069,7 +1111,7 @@ function App() {
               <div className="reply-preview-bar">
                 <div className="reply-info">
                   <span className="reply-icon">↩️ Replying to <strong>{replyingTo.isSelf ? 'You' : replyingTo.senderName}</strong></span>
-                  <span className="reply-text">{replyingTo.text}</span>
+                  <span className="reply-text">{getAvatarForSocket(replyingTo.senderId)} {replyingTo.text}</span>
                 </div>
                 <button 
                   className="btn-remove-reply"
@@ -1118,14 +1160,16 @@ function App() {
                   disabled={fileUploading || !isConnected}
                 />
 
-                <input
+                <textarea
+                  ref={textareaRef}
                   className="chat-input-field"
-                  type="text"
                   placeholder={isConnected ? "Send encrypted message..." : "Disconnected..."}
                   value={inputText}
                   onChange={handleInputChange}
+                  onKeyDown={handleKeyDown}
                   disabled={!isConnected}
                   maxLength={1000}
+                  rows={1}
                 />
                 
                 <button 
