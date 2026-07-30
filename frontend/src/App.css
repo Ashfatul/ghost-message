@@ -588,58 +588,64 @@ button, input {
 
 .message-bubble-wrapper.self {
   align-self: flex-end;
+  align-items: flex-end;
 }
 
 .message-bubble-wrapper.peer {
   align-self: flex-start;
+  align-items: flex-start;
 }
 
 .message-meta {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  font-size: 0.825rem;
+  gap: 0.4rem;
+  font-size: 0.75rem;
   color: var(--color-text-muted);
-  margin-bottom: 0.15rem;
-  padding: 0 0.5rem;
+  margin-bottom: 0.25rem;
+  padding: 0 0.3rem;
+  user-select: none;
 }
 
 .message-bubble-wrapper.self .message-meta {
   justify-content: flex-end;
 }
 
+.message-sender {
+  font-weight: 600;
+  color: var(--color-text-main);
+}
+
+.message-bubble-wrapper.self .message-sender {
+  color: var(--color-accent);
+}
+
+.message-meta-time {
+  opacity: 0.5;
+  font-size: 0.7rem;
+}
+
 .message-bubble {
-  padding: 0.55rem 0.9rem;
-  border-radius: 16px;
-  font-size: 1.05rem;
-  line-height: 1.5;
+  padding: 0.45rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  line-height: 1.4;
   word-break: break-word;
   position: relative;
-  display: flow-root;
+  display: inline-block;
+  max-width: 100%;
 }
 
 .message-bubble-wrapper.self .message-bubble {
-  background: linear-gradient(135deg, rgba(0, 242, 254, 0.15) 0%, rgba(0, 198, 255, 0.05) 100%);
-  border: 1px solid rgba(0, 242, 254, 0.2);
+  background: linear-gradient(135deg, rgba(0, 242, 254, 0.12) 0%, rgba(0, 198, 255, 0.04) 100%);
+  border: 1px solid rgba(0, 242, 254, 0.18);
   border-top-right-radius: 4px;
 }
 
 .message-bubble-wrapper.peer .message-bubble {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.025);
   border: 1px solid var(--color-border);
   border-top-left-radius: 4px;
-}
-
-.message-time {
-  font-size: 0.7rem;
-  color: rgba(255, 255, 255, 0.35);
-  margin-top: 0.25rem;
-  margin-left: 0.75rem;
-  float: right;
-  display: inline-block;
-  position: relative;
-  bottom: -2px;
 }
 
 /* Secure File Card */
@@ -792,7 +798,7 @@ button, input {
 
 /* Chat Input Bar */
 .chat-input-area {
-  padding: 1.25rem 1.5rem;
+  padding: 0.75rem 1.25rem;
   border-top: 1px solid var(--color-border);
   background: rgba(13, 21, 39, 0.4);
 }
@@ -908,28 +914,55 @@ button, input {
   background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
   color: var(--color-text-dark);
   border: none;
-  border-radius: 12px;
+  border-radius: 50%;
   width: 40px;
   height: 40px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.15rem;
   cursor: pointer;
-  box-shadow: 0 4px 10px var(--color-primary-glow);
-  transition: var(--transition-bounce);
+  box-shadow: 0 0 12px var(--color-primary-glow);
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   flex-shrink: 0;
+  padding: 0;
+}
+
+.btn-send svg {
+  width: 18px;
+  height: 18px;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+  display: block;
+}
+
+.btn-send .spinner-icon {
+  animation: spin 1s linear infinite;
 }
 
 .btn-send:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 15px rgba(0, 242, 254, 0.35);
+  transform: scale(1.08);
+  box-shadow: 0 0 20px rgba(0, 242, 254, 0.5);
+}
+
+.btn-send:hover:not(:disabled) .send-icon {
+  transform: translate(2px, -2px) scale(0.95);
+}
+
+.btn-send:active:not(:disabled) {
+  transform: scale(0.95);
 }
 
 .btn-send:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.25);
   box-shadow: none;
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+@keyframes spin {
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 /* E2EE Ephemeral Self-Destruct Sidebar Styles */
@@ -1229,10 +1262,21 @@ button, input {
     height: 36px;
   }
 
-  .btn-attach, .btn-send {
+  .btn-attach {
     width: 36px;
     height: 36px;
     border-radius: 8px;
+  }
+
+  .btn-send {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+  }
+
+  .btn-send svg {
+    width: 15px;
+    height: 15px;
   }
 }
 
@@ -1318,7 +1362,7 @@ button, input {
   white-space: nowrap;
 }
 
-/* Reply button inside message bubble metadata */
+/* Reply button inside message bubble layout */
 .btn-reply-bubble {
   background: transparent;
   border: none;
@@ -1326,16 +1370,18 @@ button, input {
   font-size: 0.85rem;
   opacity: 0;
   transition: var(--transition-smooth);
-  margin-left: 0.5rem;
-  padding: 2px;
+  padding: 4px;
   line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .message-bubble-wrapper:hover .btn-reply-bubble {
-  opacity: 0.75;
+  opacity: 0.5;
 }
 .btn-reply-bubble:hover {
   opacity: 1 !important;
-  transform: scale(1.15);
+  transform: scale(1.2);
 }
 
 /* Reply Preview Bar above the chat input form */
@@ -1385,4 +1431,39 @@ button, input {
 .btn-remove-reply:hover {
   color: var(--color-error);
   transform: scale(1.1);
+}
+
+/* Message row structure to align reply button next to bubble */
+.message-row {
+  display: flex;
+  align-items: center;
+  max-width: 100%;
+}
+
+/* Grouped consecutive message bubble pull-up and styling */
+.message-bubble-wrapper.grouped {
+  margin-top: -0.95rem;
+}
+
+.message-bubble-wrapper.self.grouped .message-bubble {
+  border-top-right-radius: 12px;
+  border-bottom-right-radius: 4px;
+}
+
+.message-bubble-wrapper.peer.grouped .message-bubble {
+  border-top-left-radius: 12px;
+  border-bottom-left-radius: 4px;
+}
+
+/* Self-destruct indicator in-line for grouped messages */
+.self-destruct-indicator-inline {
+  font-size: 0.65rem;
+  color: var(--color-error);
+  background: var(--color-error-glow);
+  padding: 0.05rem 0.25rem;
+  border-radius: 4px;
+  margin-left: 0.45rem;
+  vertical-align: middle;
+  display: inline-flex;
+  align-items: center;
 }

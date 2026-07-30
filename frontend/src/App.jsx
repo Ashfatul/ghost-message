@@ -19,7 +19,7 @@ const generateRandomGhostName = () => {
 };
 
 // Sub-component for individual message bubbles handling E2EE self-destruction
-function MessageBubble({ msg, onDestroy, onImageClick, isImageFile, onReply }) {
+function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, onReply }) {
   const [timeLeft, setTimeLeft] = useState(msg.selfDestruct || null);
   const [isExpiring, setIsExpiring] = useState(false);
 
@@ -63,68 +63,89 @@ function MessageBubble({ msg, onDestroy, onImageClick, isImageFile, onReply }) {
   };
 
   return (
-    <div className={`message-bubble-wrapper ${msg.isSelf ? 'self' : 'peer'} ${isExpiring ? 'dissolving' : ''}`}>
-      <div className="message-meta">
-        {msg.isSelf ? 'You' : msg.senderName}
-        {msg.selfDestruct && timeLeft !== null && (
-          <span className="self-destruct-indicator" title="Self-destructing message">
-            {formatTimeLeft(timeLeft)}
+    <div className={`message-bubble-wrapper ${msg.isSelf ? 'self' : 'peer'} ${isExpiring ? 'dissolving' : ''} ${isGrouped ? 'grouped' : ''}`}>
+      {!isGrouped && (
+        <div className="message-meta">
+          <span className="message-sender">{msg.isSelf ? 'You' : msg.senderName}</span>
+          <span className="message-meta-time">
+            {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
+          {msg.selfDestruct && timeLeft !== null && (
+            <span className="self-destruct-indicator" title="Self-destructing message">
+              {formatTimeLeft(timeLeft)}
+            </span>
+          )}
+        </div>
+      )}
+      <div className="message-row">
+        {msg.isSelf && (
+          <button 
+            className="btn-reply-bubble" 
+            onClick={onReply}
+            title="Reply to this message"
+          >
+            ↩️
+          </button>
         )}
-        <button 
-          className="btn-reply-bubble" 
-          onClick={onReply}
-          title="Reply to this message"
-        >
-          ↩️
-        </button>
-      </div>
-      <div className="message-bubble">
-        {msg.selfDestruct && timeLeft !== null && (
-          <div 
-            className="self-destruct-progress-bar" 
-            style={{ width: `${(timeLeft / msg.selfDestruct) * 100}%` }}
-          />
-        )}
-
-        {msg.replyTo && (
-          <div className="message-reply-quote">
-            <span className="reply-quote-sender">{msg.replyTo.senderName}</span>
-            <span className="reply-quote-text">{msg.replyTo.text}</span>
-          </div>
-        )}
-        
-        <div className="message-text">{msg.text}</div>
-
-        {msg.file && (
-          isImageFile(msg.file.type) ? (
+        <div className="message-bubble">
+          {msg.selfDestruct && timeLeft !== null && (
             <div 
-              className="encrypted-image-preview"
-              onClick={() => onImageClick(msg.file.url, msg.file.name)}
-            >
-              <img src={msg.file.url} alt={msg.file.name} />
+              className="self-destruct-progress-bar" 
+              style={{ width: `${(timeLeft / msg.selfDestruct) * 100}%` }}
+            />
+          )}
+
+          {msg.replyTo && (
+            <div className="message-reply-quote">
+              <span className="reply-quote-sender">{msg.replyTo.senderName}</span>
+              <span className="reply-quote-text">{msg.replyTo.text}</span>
             </div>
-          ) : (
-            <div className="file-attachment-card">
-              <span className="file-icon">📁</span>
-              <div className="file-info">
-                <div className="file-name" title={msg.file.name}>{msg.file.name}</div>
-                <div className="file-size">{msg.file.type || 'Binary file'}</div>
-              </div>
-              <a 
-                href={msg.file.url} 
-                download={msg.file.name} 
-                className="btn-download"
+          )}
+          
+          <div className="message-text">
+            {msg.text}
+            {isGrouped && msg.selfDestruct && timeLeft !== null && (
+              <span className="self-destruct-indicator-inline">
+                {formatTimeLeft(timeLeft)}
+              </span>
+            )}
+          </div>
+
+          {msg.file && (
+            isImageFile(msg.file.type) ? (
+              <div 
+                className="encrypted-image-preview"
+                onClick={() => onImageClick(msg.file.url, msg.file.name)}
               >
-                Download
-              </a>
-            </div>
-          )
+                <img src={msg.file.url} alt={msg.file.name} />
+              </div>
+            ) : (
+              <div className="file-attachment-card">
+                <span className="file-icon">📁</span>
+                <div className="file-info">
+                  <div className="file-name" title={msg.file.name}>{msg.file.name}</div>
+                  <div className="file-size">{msg.file.type || 'Binary file'}</div>
+                </div>
+                <a 
+                  href={msg.file.url} 
+                  download={msg.file.name} 
+                  className="btn-download"
+                >
+                  Download
+                </a>
+              </div>
+            )
+          )}
+        </div>
+        {!msg.isSelf && (
+          <button 
+            className="btn-reply-bubble" 
+            onClick={onReply}
+            title="Reply to this message"
+          >
+            ↩️
+          </button>
         )}
-        
-        <span className="message-time">
-          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </span>
       </div>
     </div>
   );
@@ -996,7 +1017,7 @@ function App() {
                 <p>Share the secure link above with a peer to begin chatting anonymously. All messages are encrypted locally.</p>
               </div>
             ) : (
-              messages.map((msg) => {
+              messages.map((msg, index) => {
                 if (msg.type === 'system') {
                   return (
                     <div key={msg.id} className="message-system">
@@ -1005,10 +1026,18 @@ function App() {
                   );
                 }
 
+                // Group successive messages from the same sender within 2 minutes
+                const prevMsg = index > 0 ? messages[index - 1] : null;
+                const isGrouped = prevMsg && 
+                                  prevMsg.type !== 'system' && 
+                                  prevMsg.senderId === msg.senderId &&
+                                  (new Date(msg.timestamp).getTime() - new Date(prevMsg.timestamp).getTime()) < 120000;
+
                 return (
                   <MessageBubble 
                     key={msg.id} 
                     msg={msg} 
+                    isGrouped={isGrouped}
                     onDestroy={() => deleteMessage(msg.id)} 
                     onImageClick={(url, name) => setLightboxImage({ url, name })}
                     isImageFile={isImageFile}
@@ -1103,8 +1132,19 @@ function App() {
                   className="btn-send" 
                   type="submit" 
                   disabled={(!inputText.trim() && !attachment) || fileUploading || !isConnected}
+                  title="Send Message"
                 >
-                  {fileUploading ? '⌛' : '⚡'}
+                  {fileUploading ? (
+                    <svg className="spinner-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                      <circle cx="12" cy="12" r="10" strokeDasharray="31.4" strokeDashoffset="10">
+                        <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/>
+                      </circle>
+                    </svg>
+                  ) : (
+                    <svg className="send-icon" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                    </svg>
+                  )}
                 </button>
               </div>
             </form>
