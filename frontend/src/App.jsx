@@ -297,6 +297,32 @@ function App() {
     localStorage.setItem('ghost_sound_enabled', String(soundEnabled));
   }, [soundEnabled]);
 
+  // Handle mobile visual viewport for keyboard sizing
+  useEffect(() => {
+    const handleViewportResize = () => {
+      if (window.visualViewport) {
+        document.documentElement.style.setProperty(
+          '--app-height',
+          `${window.visualViewport.height}px`
+        );
+      }
+    };
+    
+    handleViewportResize(); // init
+    
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleViewportResize);
+      window.visualViewport.addEventListener('scroll', handleViewportResize);
+    }
+    
+    return () => {
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleViewportResize);
+        window.visualViewport.removeEventListener('scroll', handleViewportResize);
+      }
+    };
+  }, []);
+
   useEffect(() => {
     roomUsersRef.current = roomUsers;
   }, [roomUsers]);
@@ -878,6 +904,10 @@ function App() {
       setReplyingTo(null);
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
+        // Refocus to keep keyboard open on mobile
+        setTimeout(() => {
+          if (textareaRef.current) textareaRef.current.focus();
+        }, 10);
       }
 
     } catch (err) {
@@ -1370,7 +1400,7 @@ function App() {
                   <textarea
                     ref={textareaRef}
                     className="chat-input-field"
-                    placeholder={isConnected ? "Send encrypted message..." : "Disconnected..."}
+                    placeholder={isConnected ? "Message..." : "Disconnected..."}
                     value={inputText}
                     onChange={handleInputChange}
                     onKeyDown={handleKeyDown}
