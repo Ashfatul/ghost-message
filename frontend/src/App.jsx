@@ -1293,105 +1293,111 @@ function App() {
               </div>
             )}
 
-            <form className="input-form" onSubmit={handleSendMessage}>
+            <form className="chat-input-form" onSubmit={handleSendMessage}>
               <div className="input-bar-container">
-                {/* Secret File Attach Input */}
-                <label 
-                  className={`btn-attach ${attachment ? 'has-file' : ''} ${fileUploading ? 'disabled' : ''}`}
-                  htmlFor="file-attach-input"
-                  title="Attach Encrypted File (Max 5MB)"
-                >
-                  📎
-                </label>
-                <input 
-                  id="file-attach-input"
-                  type="file"
-                  style={{ display: 'none' }}
-                  onChange={handleFileChange}
-                  disabled={fileUploading || !isConnected}
-                />
-                <button 
-                  type="button"
-                  className={`btn-attach ${isRecording ? 'recording' : ''}`}
-                  onClick={toggleRecording}
-                  disabled={!isConnected}
-                  title={isRecording ? "Stop Recording" : "Record Voice Note"}
-                  style={isRecording ? { color: 'var(--color-error)' } : {}}
-                >
-                  {isRecording ? '🛑' : '🎤'}
-                </button>
-
-                <div style={{ position: 'relative' }}>
+                <div className="chat-action-group">
+                  <input 
+                    id="file-attach-input"
+                    type="file"
+                    style={{ display: 'none' }}
+                    onChange={handleFileChange}
+                    disabled={fileUploading || !isConnected}
+                  />
                   <button 
                     type="button"
                     className="btn-attach"
-                    onClick={() => setShowInputEmojiPicker(!showInputEmojiPicker)}
-                    disabled={!isConnected}
-                    title="Add Emoji"
+                    onClick={() => document.getElementById('file-attach-input').click()}
+                    disabled={fileUploading || !isConnected}
+                    title="Attach File"
                   >
-                    😀
+                    📎
                   </button>
-                  {showInputEmojiPicker && (
-                    <div className="input-emoji-picker" style={{
-                      position: 'absolute',
-                      bottom: '100%',
-                      left: '0',
-                      marginBottom: '10px',
-                      background: 'var(--color-bg-secondary)',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: '8px',
-                      padding: '8px',
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(5, 1fr)',
-                      gap: '4px',
-                      zIndex: 100,
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
-                    }}>
-                      {inputEmojis.map(emoji => (
-                        <span 
-                          key={emoji} 
-                          style={{ cursor: 'pointer', fontSize: '1.25rem', padding: '4px', textAlign: 'center', transition: 'transform 0.1s' }}
-                          onMouseOver={ev => ev.target.style.transform = 'scale(1.2)'} 
-                          onMouseOut={ev => ev.target.style.transform = 'scale(1)'}
-                          onClick={() => handleEmojiSelect(emoji)}
-                        >
-                          {emoji}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+
+                  <button 
+                    type="button"
+                    className={`btn-attach ${isRecording ? 'recording' : ''}`}
+                    onClick={toggleRecording}
+                    disabled={!isConnected}
+                    title={isRecording ? "Stop Recording" : "Record Voice Note"}
+                    style={isRecording ? { color: 'var(--color-error)' } : {}}
+                  >
+                    {isRecording ? '🛑' : '🎤'}
+                  </button>
+
+                  <div style={{ position: 'relative' }}>
+                    <button 
+                      type="button"
+                      className="btn-attach"
+                      onClick={() => setShowInputEmojiPicker(!showInputEmojiPicker)}
+                      disabled={!isConnected}
+                      title="Add Emoji"
+                    >
+                      😀
+                    </button>
+                    {showInputEmojiPicker && (
+                      <div className="input-emoji-picker" style={{
+                        position: 'absolute',
+                        bottom: '100%',
+                        left: '0',
+                        marginBottom: '10px',
+                        background: 'var(--color-bg-secondary)',
+                        border: '1px solid var(--color-border)',
+                        borderRadius: '8px',
+                        padding: '8px',
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(5, 1fr)',
+                        gap: '4px',
+                        zIndex: 100,
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
+                      }}>
+                        {inputEmojis.map(emoji => (
+                          <span 
+                            key={emoji} 
+                            style={{ cursor: 'pointer', fontSize: '1.25rem', padding: '4px', textAlign: 'center', transition: 'transform 0.1s' }}
+                            onMouseOver={ev => ev.target.style.transform = 'scale(1.2)'} 
+                            onMouseOut={ev => ev.target.style.transform = 'scale(1)'}
+                            onClick={() => handleEmojiSelect(emoji)}
+                          >
+                            {emoji}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <textarea
-                  ref={textareaRef}
-                  className="chat-input-field"
-                  placeholder={isConnected ? "Send encrypted message..." : "Disconnected..."}
-                  value={inputText}
-                  onChange={handleInputChange}
-                  onKeyDown={handleKeyDown}
-                  disabled={!isConnected}
-                  maxLength={1000}
-                  rows={1}
-                />
-                
-                <button 
-                  className="btn-send" 
-                  type="submit" 
-                  disabled={(!inputText.trim() && !attachment) || fileUploading || !isConnected}
-                  title="Send Message"
-                >
-                  {fileUploading ? (
-                    <svg className="spinner-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                      <circle cx="12" cy="12" r="10" strokeDasharray="31.4" strokeDashoffset="10">
-                        <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/>
-                      </circle>
-                    </svg>
-                  ) : (
-                    <svg className="send-icon" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-                    </svg>
-                  )}
-                </button>
+                <div className="chat-input-wrapper">
+                  <textarea
+                    ref={textareaRef}
+                    className="chat-input-field"
+                    placeholder={isConnected ? "Send encrypted message..." : "Disconnected..."}
+                    value={inputText}
+                    onChange={handleInputChange}
+                    onKeyDown={handleKeyDown}
+                    disabled={!isConnected}
+                    maxLength={1000}
+                    rows={1}
+                  />
+                  
+                  <button 
+                    className="btn-send" 
+                    type="submit" 
+                    disabled={(!inputText.trim() && !attachment) || fileUploading || !isConnected}
+                    title="Send Message"
+                  >
+                    {fileUploading ? (
+                      <svg className="spinner-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                        <circle cx="12" cy="12" r="10" strokeDasharray="31.4" strokeDashoffset="10">
+                          <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/>
+                        </circle>
+                      </svg>
+                    ) : (
+                      <svg className="send-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
