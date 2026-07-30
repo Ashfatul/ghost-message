@@ -19,7 +19,7 @@ const generateRandomGhostName = () => {
 };
 
 // Sub-component for individual message bubbles handling E2EE self-destruction
-function MessageBubble({ msg, onDestroy, onImageClick, isImageFile }) {
+function MessageBubble({ msg, onDestroy, onImageClick, isImageFile, onReply }) {
   const [timeLeft, setTimeLeft] = useState(msg.selfDestruct || null);
   const [isExpiring, setIsExpiring] = useState(false);
 
@@ -71,6 +71,13 @@ function MessageBubble({ msg, onDestroy, onImageClick, isImageFile }) {
             {formatTimeLeft(timeLeft)}
           </span>
         )}
+        <button 
+          className="btn-reply-bubble" 
+          onClick={onReply}
+          title="Reply to this message"
+        >
+          ↩️
+        </button>
       </div>
       <div className="message-bubble">
         {msg.selfDestruct && timeLeft !== null && (
@@ -79,8 +86,15 @@ function MessageBubble({ msg, onDestroy, onImageClick, isImageFile }) {
             style={{ width: `${(timeLeft / msg.selfDestruct) * 100}%` }}
           />
         )}
+
+        {msg.replyTo && (
+          <div className="message-reply-quote">
+            <span className="reply-quote-sender">{msg.replyTo.senderName}</span>
+            <span className="reply-quote-text">{msg.replyTo.text}</span>
+          </div>
+        )}
         
-        {msg.text}
+        <div className="message-text">{msg.text}</div>
 
         {msg.file && (
           isImageFile(msg.file.type) ? (
@@ -141,11 +155,14 @@ function App() {
   const [lightboxImage, setLightboxImage] = useState(null);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [destructTimeInput, setDestructTimeInput] = useState(() => {
-    return localStorage.getItem('ghost_destruct_time') || '';
+    return localStorage.getItem('ghost_destruct_time') || '30';
   });
-  const [destructScope, setDestructScope] = useState(() => {
-    return localStorage.getItem('ghost_destruct_scope') || 'mine';
+  const [isCreator, setIsCreator] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    return localStorage.getItem('ghost_sound_enabled') !== 'false';
   });
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [replyingTo, setReplyingTo] = useState(null);
   
   // Refs
   const socketRef = useRef(null);
@@ -154,9 +171,10 @@ function App() {
   const isTypingRef = useRef(false);
   const typingTimeoutRef = useRef(null);
   const objectUrlsRef = useRef([]);
+  const roomUsersRef = useRef([]);
+  const prevMessagesCountRef = useRef(0);
   
   const destructTimeInputRef = useRef(destructTimeInput);
-  const destructScopeRef = useRef(destructScope);
 
   // Sync state changes with localStorage and refs
   useEffect(() => {
@@ -165,9 +183,67 @@ function App() {
   }, [destructTimeInput]);
 
   useEffect(() => {
-    localStorage.setItem('ghost_destruct_scope', destructScope);
-    destructScopeRef.current = destructScope;
-  }, [destructScope]);
+    localStorage.setItem('ghost_sound_enabled', String(soundEnabled));
+  }, [soundEnabled]);
+
+  useEffect(() => {
+    roomUsersRef.current = roomUsers;
+  }, [roomUsers]);
+
+  // Handle unread count resets when window is focused
+  useEffect(() => {
+    const handleFocus = () => {
+      setUnreadCount(0);
+    };
+    window.addEventListener('focus', handleFocus);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        setUnreadCount(0);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, []);
+
+  // Update window title with unread indicator
+  useEffect(() => {
+    if (roomId && hasJoined) {
+      if (unreadCount > 0) {
+        document.title = `(${unreadCount}) 👻 Ghost Chat`;
+      } else {
+        document.title = '👻 Ghost Chat';
+      }
+    } else {
+      document.title = 'Ghost Message - E2EE Chat';
+    }
+  }, [unreadCount, roomId, hasJoined]);
+
+  // Web Audio chime generator to play message notification sound
+  const playNotificationSound = () => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1); // A5
+      
+      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+      
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      
+      osc.start();
+      osc.stop(ctx.currentTime + 0.45);
+    } catch (e) {
+      console.error("Failed to play sound:", e);
+    }
+  };
 
   const deleteMessage = (id) => {
     setMessages((prev) => prev.filter(m => m.id !== id));
@@ -198,10 +274,20 @@ function App() {
     };
   }, []);
 
-  // Scroll to bottom when new messages arrive
+  // Scroll to bottom when new messages arrive (avoid jumping when self-destructing)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, typingUsers]);
+    if (messages.length > prevMessagesCountRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+    prevMessagesCountRef.current = messages.length;
+  }, [messages]);
+
+  // Scroll to bottom when a peer starts typing
+  useEffect(() => {
+    if (Object.keys(typingUsers).length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [typingUsers]);
 
   // Navigate helper
   const navigate = (path, hash = '') => {
@@ -227,6 +313,11 @@ function App() {
 
     const initConnection = async () => {
       try {
+        // Request HTML5 notification permission if not asked
+        if (window.Notification && Notification.permission === 'default') {
+          Notification.requestPermission();
+        }
+
         // 1. Import E2EE encryption key
         cryptoKeyRef.current = await importKey(encryptionKeyB64);
         
@@ -246,10 +337,11 @@ function App() {
         socket.on('connect', () => {
           setConnectionStatus('connected');
           
-          // Send join signal
+          // Send join signal with creator status checking from sessionStorage
           socket.emit('join-room', {
             roomId,
-            encryptedUsername: encNamePayload
+            encryptedUsername: encNamePayload,
+            isCreator: sessionStorage.getItem(`creator_${roomId}`) === 'true'
           });
         });
 
@@ -259,6 +351,22 @@ function App() {
 
         socket.on('disconnect', () => {
           setConnectionStatus('disconnected');
+        });
+
+        // Handle room configuration information from server
+        socket.on('room-info', ({ isCreator: serverIsCreator, selfDestruct }) => {
+          if (serverIsCreator) {
+            sessionStorage.setItem(`creator_${roomId}`, 'true');
+            setIsCreator(true);
+          }
+          if (selfDestruct !== undefined) {
+            setDestructTimeInput(selfDestruct === null ? '' : String(selfDestruct));
+          }
+        });
+
+        // Handle setting updates broadcasted from creator
+        socket.on('settings-updated', ({ selfDestruct }) => {
+          setDestructTimeInput(selfDestruct === null ? '' : String(selfDestruct));
         });
 
         // Handle user list updates
@@ -303,22 +411,19 @@ function App() {
           }
         });
 
-        // Handle peer leaving
+        // Handle peer leaving (uses roomUsersRef to ensure nickname resolves correctly)
         socket.on('peer-left', ({ socketId }) => {
-          // Find peer name before removing
-          setRoomUsers((currentUsers) => {
-            const peer = currentUsers.find(u => u.socketId === socketId);
-            const peerName = peer ? peer.nickname : "A peer";
-            
-            setMessages((prev) => [...prev, {
-              id: Math.random().toString(36).substring(2, 9),
-              type: 'system',
-              text: `💤 ${peerName} disconnected.`,
-              timestamp: new Date().toISOString()
-            }]);
-            
-            return currentUsers.filter(u => u.socketId !== socketId);
-          });
+          const peer = roomUsersRef.current.find(u => u.socketId === socketId);
+          const peerName = peer ? peer.nickname : "A peer";
+          
+          setMessages((prev) => [...prev, {
+            id: Math.random().toString(36).substring(2, 9),
+            type: 'system',
+            text: `💤 ${peerName} disconnected.`,
+            timestamp: new Date().toISOString()
+          }]);
+          
+          setRoomUsers((prev) => prev.filter(u => u.socketId !== socketId));
           
           // Clear typing status if they were typing
           setTypingUsers((prev) => {
@@ -378,9 +483,23 @@ function App() {
               objectUrlsRef.current.push(decrypted.url);
             }
             
-            const peerTimer = payload.selfDestruct || null;
-            const activeTimer = parseInt(destructTimeInputRef.current) || null;
-            const finalTimer = (destructScopeRef.current === 'all' && activeTimer) ? activeTimer : peerTimer;
+            // Push Notification & Sound Logic
+            if (document.visibilityState !== 'visible' || !document.hasFocus()) {
+              setUnreadCount((prev) => prev + 1);
+              if (window.Notification && Notification.permission === 'granted') {
+                const notification = new Notification(`💬 New Message from ${payload.senderName || 'Anonymous'}`, {
+                  body: payload.text || (payload.file ? '📁 Shared a secure file' : ''),
+                });
+                notification.onclick = () => {
+                  window.focus();
+                  notification.close();
+                };
+              }
+            }
+
+            if (localStorage.getItem('ghost_sound_enabled') !== 'false') {
+              playNotificationSound();
+            }
 
             setMessages((prev) => [...prev, {
               id: Math.random().toString(36).substring(2, 9),
@@ -390,8 +509,9 @@ function App() {
               text: payload.text,
               file: fileInfo,
               timestamp: payload.timestamp || new Date().toISOString(),
-              selfDestruct: finalTimer,
-              isSelf: false
+              selfDestruct: payload.selfDestruct || null,
+              isSelf: false,
+              replyTo: payload.replyTo || null
             }]);
           } catch (err) {
             console.error("Message decryption failed:", err);
@@ -436,6 +556,10 @@ function App() {
     const randomRoomId = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
     const key = await generateKey();
     
+    // Setup creator in sessionStorage and local state
+    sessionStorage.setItem(`creator_${randomRoomId}`, 'true');
+    setIsCreator(true);
+    
     navigate(`/room/${randomRoomId}`, `#${key}`);
     setHasJoined(true);
   };
@@ -446,6 +570,8 @@ function App() {
     if (!nickname.trim()) return;
     
     localStorage.setItem('ghost_nickname', nickname);
+    // Sync local isCreator state from sessionStorage if they had opened/created it in the same tab session
+    setIsCreator(sessionStorage.getItem(`creator_${roomId}`) === 'true');
     setHasJoined(true);
   };
 
@@ -509,7 +635,12 @@ function App() {
       const payload = {
         senderName: nickname,
         timestamp: new Date().toISOString(),
-        selfDestruct: activeTimer
+        selfDestruct: activeTimer,
+        replyTo: replyingTo ? {
+          id: replyingTo.id,
+          senderName: replyingTo.senderName,
+          text: replyingTo.text
+        } : null
       };
 
       let localFileInfo = null;
@@ -554,12 +685,14 @@ function App() {
         file: localFileInfo,
         timestamp: payload.timestamp,
         selfDestruct: activeTimer,
-        isSelf: true
+        isSelf: true,
+        replyTo: payload.replyTo || null
       }]);
 
-      // Clear input form
+      // Clear input form and replyingTo state
       setInputText('');
       setAttachment(null);
+      setReplyingTo(null);
 
     } catch (err) {
       console.error("Failed to encrypt and send message:", err);
@@ -757,48 +890,54 @@ function App() {
             </div>
           </div>
 
-          {/* E2EE Ephemeral Self-Destruct Settings */}
+          {/* E2EE Ephemeral Self-Destruct & Sound Settings */}
           <div className="room-link-card security-settings-card">
-            <h3>🛡️ Security Settings</h3>
-            <div className="sidebar-field-group">
-              <label className="input-label" htmlFor="destruct-time-input">Self-Destruct (seconds)</label>
-              <input 
-                id="destruct-time-input"
-                className="custom-input sidebar-input" 
-                type="number" 
-                min="0"
-                placeholder="0 to disable (Never)"
-                value={destructTimeInput}
-                onChange={(e) => setDestructTimeInput(e.target.value)}
-              />
-            </div>
-            {parseInt(destructTimeInput) > 0 && (
+            <h3>🛡️ Settings</h3>
+            {isCreator ? (
               <div className="sidebar-field-group">
-                <label className="input-label">Apply Timer To</label>
-                <div className="radio-group">
-                  <label className="radio-label">
-                    <input 
-                      type="radio" 
-                      name="destruct-scope" 
-                      value="mine" 
-                      checked={destructScope === 'mine'} 
-                      onChange={() => setDestructScope('mine')} 
-                    />
-                    <span>My Messages Only</span>
-                  </label>
-                  <label className="radio-label">
-                    <input 
-                      type="radio" 
-                      name="destruct-scope" 
-                      value="all" 
-                      checked={destructScope === 'all'} 
-                      onChange={() => setDestructScope('all')} 
-                    />
-                    <span>All Messages</span>
-                  </label>
+                <label className="input-label" htmlFor="destruct-time-input">Self-Destruct (seconds)</label>
+                <input 
+                  id="destruct-time-input"
+                  className="custom-input sidebar-input" 
+                  type="number" 
+                  min="0"
+                  placeholder="0 to disable (Never)"
+                  value={destructTimeInput}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setDestructTimeInput(val);
+                    if (socketRef.current && connectionStatus === 'connected') {
+                      socketRef.current.emit('update-settings', {
+                        roomId,
+                        selfDestruct: val === '' ? null : parseInt(val)
+                      });
+                    }
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="sidebar-field-group">
+                <span className="input-label">Self-Destruct (Set by Creator)</span>
+                <div className="destruct-status-badge">
+                  {destructTimeInput && parseInt(destructTimeInput) > 0 ? (
+                    <span>⏱️ Auto-delete: {destructTimeInput}s</span>
+                  ) : (
+                    <span>🔓 Auto-delete: Off</span>
+                  )}
                 </div>
               </div>
             )}
+            
+            <div className="sidebar-field-group" style={{ marginTop: '0.5rem' }}>
+              <label className="checkbox-label">
+                <input 
+                  type="checkbox" 
+                  checked={soundEnabled} 
+                  onChange={(e) => setSoundEnabled(e.target.checked)} 
+                />
+                <span>Notification Sound</span>
+              </label>
+            </div>
           </div>
 
           <div className="user-list-section">
@@ -807,15 +946,22 @@ function App() {
               <span className="user-count-badge">{roomUsers.length}</span>
             </h3>
             <div className="user-list-scroll">
-              {roomUsers.map((user) => (
-                <div 
-                  key={user.socketId} 
-                  className={`user-list-item ${user.socketId === socketRef.current?.id ? 'self' : ''}`}
-                >
-                  <span className="user-avatar-dot"></span>
-                  <span>{user.nickname}</span>
-                </div>
-              ))}
+              {[...roomUsers]
+                .sort((a, b) => {
+                  if (a.socketId === socketRef.current?.id) return -1;
+                  if (b.socketId === socketRef.current?.id) return 1;
+                  return a.nickname.localeCompare(b.nickname);
+                })
+                .map((user) => (
+                  <div 
+                    key={user.socketId} 
+                    className={`user-list-item ${user.socketId === socketRef.current?.id ? 'self' : ''}`}
+                  >
+                    <span className="user-avatar-dot"></span>
+                    <span>{user.nickname}</span>
+                  </div>
+                ))
+              }
             </div>
           </div>
 
@@ -864,6 +1010,7 @@ function App() {
                     onDestroy={() => deleteMessage(msg.id)} 
                     onImageClick={(url, name) => setLightboxImage({ url, name })}
                     isImageFile={isImageFile}
+                    onReply={() => setReplyingTo(msg)}
                   />
                 );
               })
@@ -887,6 +1034,22 @@ function App() {
 
           {/* Form input */}
           <div className="chat-input-area">
+            {replyingTo && (
+              <div className="reply-preview-bar">
+                <div className="reply-info">
+                  <span className="reply-icon">↩️ Replying to <strong>{replyingTo.isSelf ? 'You' : replyingTo.senderName}</strong></span>
+                  <span className="reply-text">{replyingTo.text}</span>
+                </div>
+                <button 
+                  className="btn-remove-reply"
+                  onClick={() => setReplyingTo(null)}
+                  title="Cancel reply"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
             {attachment && (
               <div className={`attachment-preview-bar ${fileUploading ? '' : 'success'}`}>
                 <div className="attachment-info">
@@ -970,7 +1133,7 @@ function App() {
 
   // Router layout dispatcher
   return (
-    <div className="app-container">
+    <div className={`app-container ${roomId && hasJoined ? 'chat-mode' : ''}`}>
       {!roomId ? (
         renderLobby()
       ) : !hasJoined ? (

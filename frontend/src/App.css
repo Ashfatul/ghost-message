@@ -70,6 +70,14 @@ body {
     radial-gradient(circle at 90% 80%, rgba(5, 243, 162, 0.04) 0%, transparent 40%);
 }
 
+.app-container.chat-mode {
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100vh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
 /* Grid overlay to give high-tech look */
 .app-container::before {
   content: '';
@@ -287,8 +295,10 @@ button, input {
   margin: 0 auto;
   padding: 1.5rem;
   gap: 1.5rem;
-  height: 100vh;
-  height: 100dvh;
+  height: 100%;
+  max-height: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 /* Left sidebar - Room Status */
@@ -563,7 +573,7 @@ button, input {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 1.25rem;
 }
 
 /* Message Bubbles */
@@ -572,6 +582,8 @@ button, input {
   flex-direction: column;
   max-width: 70%;
   animation: fadeIn 0.3s ease-out;
+  max-height: 1500px;
+  transition: max-height 0.5s ease-out, opacity 0.5s ease-out, margin 0.5s ease-out, padding 0.5s ease-out;
 }
 
 .message-bubble-wrapper.self {
@@ -854,7 +866,8 @@ button, input {
   flex: 1;
   background: transparent;
   border: none;
-  padding: 0.75rem 0.5rem;
+  height: 40px;
+  padding: 0 0.5rem;
   color: var(--color-text-main);
   font-size: 0.95rem;
   outline: none;
@@ -994,10 +1007,9 @@ button, input {
 }
 
 .message-bubble-wrapper.dissolving {
-  opacity: 0;
-  transform: scale(0.9);
-  filter: blur(5px);
-  transition: all 0.5s ease-out;
+  animation: dissolveAnimation 0.5s forwards ease-out;
+  overflow: hidden;
+  pointer-events: none;
 }
 
 /* Lightbox Modal for Encrypted Image */
@@ -1129,8 +1141,8 @@ button, input {
   .chat-wrapper {
     padding: 0;
     gap: 0;
-    height: 100vh;
-    height: 100dvh;
+    height: 100%;
+    max-height: 100%;
   }
 
   .chat-sidebar {
@@ -1214,6 +1226,7 @@ button, input {
   .chat-input-field {
     padding: 0.6rem 0.25rem;
     font-size: 0.9rem;
+    height: 36px;
   }
 
   .btn-attach, .btn-send {
@@ -1221,4 +1234,155 @@ button, input {
     height: 36px;
     border-radius: 8px;
   }
+}
+
+/* ==========================================================================
+   DISSOLVING ANIMATION (NO JUMPING HEIGHT COLLAPSE)
+   ========================================================================== */
+@keyframes dissolveAnimation {
+  0% {
+    max-height: 1000px;
+    opacity: 1;
+    margin-bottom: 1.25rem;
+    transform: scale(1);
+    filter: blur(0);
+  }
+  100% {
+    max-height: 0;
+    opacity: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    transform: scale(0.9);
+    filter: blur(5px);
+  }
+}
+
+/* Checkbox label styling for notification sound toggle */
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--color-text-main);
+  transition: var(--transition-smooth);
+  user-select: none;
+}
+.checkbox-label:hover {
+  color: var(--color-primary);
+}
+.checkbox-label input[type="checkbox"] {
+  accent-color: var(--color-accent);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+/* Destruct status badge read-only layout */
+.destruct-status-badge {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* Message bubble reply quote style */
+.message-reply-quote {
+  background: rgba(255, 255, 255, 0.05);
+  border-left: 3px solid var(--color-primary);
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  opacity: 0.9;
+  text-align: left;
+}
+.reply-quote-sender {
+  font-weight: 700;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  margin-bottom: 2px;
+}
+.reply-quote-text {
+  color: var(--color-text-muted);
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* Reply button inside message bubble metadata */
+.btn-reply-bubble {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  opacity: 0;
+  transition: var(--transition-smooth);
+  margin-left: 0.5rem;
+  padding: 2px;
+  line-height: 1;
+}
+.message-bubble-wrapper:hover .btn-reply-bubble {
+  opacity: 0.75;
+}
+.btn-reply-bubble:hover {
+  opacity: 1 !important;
+  transform: scale(1.15);
+}
+
+/* Reply Preview Bar above the chat input form */
+.reply-preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 1rem;
+  background: rgba(13, 21, 39, 0.9);
+  border-left: 4px solid var(--color-primary);
+  border-top: 1px solid var(--color-border);
+  border-right: 1px solid var(--color-border);
+  border-radius: 12px 12px 0 0;
+  margin-bottom: -1px;
+  animation: slideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  z-index: 2;
+}
+.reply-info {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.825rem;
+  min-width: 0;
+}
+.reply-icon {
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.reply-text {
+  color: var(--color-text-muted);
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.btn-remove-reply {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 4px;
+  transition: var(--transition-smooth);
+  line-height: 1;
+}
+.btn-remove-reply:hover {
+  color: var(--color-error);
+  transform: scale(1.1);
 }
