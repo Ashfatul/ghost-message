@@ -38,8 +38,19 @@ const getDeviceType = () => {
 };
 
 // Sub-component for individual message bubbles handling E2EE self-destruction
-function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, onReply, onReact, isAppActive, seenTimeout }) {
+function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, onReply, onReact, isAppActive, seenTimeout, roomUsers, currentSessionId }) {
   const isSeenTimeoutOn = msg.seenTimeout === true || (msg.seenTimeout === undefined && seenTimeout === true);
+
+  // Check if there is an active recipient peer in the room
+  const activePeerExists = useMemo(() => {
+    if (!roomUsers || !Array.isArray(roomUsers)) return false;
+    return roomUsers.some(u => u.status === 'active' && u.sessionId !== currentSessionId);
+  }, [roomUsers, currentSessionId]);
+
+  // Is timer active for Seen Timeout?
+  // Sender: Timer ONLY ticks down when active recipient peer exists in room!
+  // Recipient: Timer ONLY ticks down when local tab is active (isAppActive)!
+  const isSeenTimerActive = msg.isSelf ? activePeerExists : isAppActive;
 
   const [timeLeft, setTimeLeft] = useState(() => {
     if (!msg.selfDestruct) return null;
@@ -53,7 +64,6 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
 
   const [isExpiring, setIsExpiring] = useState(false);
   const [showTime, setShowTime] = useState(false);
-  const [isRevealed, setIsRevealed] = useState(msg.isSelf || !msg.selfDestruct);
   const [showPicker, setShowPicker] = useState(false);
   const emojis = ['👻', '🔥', '👍', '❤️', '😂', '💀'];
 
@@ -91,8 +101,7 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
       return () => clearInterval(timer);
     } else {
       // Seen Timeout is ON:
-      // Self destruct ONLY active after user seen / window is open.
-      // If tab switch or minimize (isAppActive === false), timer pauses.
+      // Countdown ONLY ticks when recipient is active and viewing!
       if (timeLeft !== null && timeLeft <= 0) {
         setIsExpiring(true);
         const destroyTimeout = setTimeout(() => {
@@ -102,8 +111,8 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
       }
 
       const timer = setInterval(() => {
-        if (!isAppActive) {
-          // Tab switched or window minimized -> pause countdown
+        if (!isSeenTimerActive) {
+          // Recipient away or tab backgrounded -> pause countdown
           return;
         }
 
@@ -122,7 +131,7 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
 
       return () => clearInterval(timer);
     }
-  }, [msg.selfDestruct, msg.timestamp, isSeenTimeoutOn, isAppActive, onDestroy]);
+  }, [msg.selfDestruct, msg.timestamp, isSeenTimeoutOn, isSeenTimerActive, onDestroy]);
 
   const formatTimeLeft = (sec) => {
     if (sec >= 3600) return `${Math.ceil(sec / 3600)}h`;
@@ -190,19 +199,14 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
           <div className="message-bubble-body">
             <div className="message-text">
               {msg.text}
-              {showTime && (
-                <span className="message-time-inline">
-                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              )}
             </div>
 
             {msg.selfDestruct && timeLeft !== null && (
               <span 
                 className="self-destruct-indicator-inside" 
-                title={isSeenTimeoutOn ? (!isAppActive ? "Self-destruct paused (tab backgrounded)" : "Self-destruct (Seen timeout active ✓✓)") : "Self-destructing message"}
+                title={isSeenTimeoutOn ? (!isSeenTimerActive ? "Self-destruct paused (recipient away / tab backgrounded)" : "Self-destruct countdown active") : "Self-destructing message"}
               >
-                {isSeenTimeoutOn && !isAppActive ? `✓ ${formatTimeLeft(timeLeft)} (Paused)` : (isSeenTimeoutOn ? `✓✓ ${formatTimeLeft(timeLeft)}` : formatTimeLeft(timeLeft))}
+                {isSeenTimeoutOn && !isSeenTimerActive ? `⏸️ ${formatTimeLeft(timeLeft)}` : `⏱️ ${formatTimeLeft(timeLeft)}`}
               </span>
             )}
           </div>
@@ -250,6 +254,19 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
               ))}
             </div>
           )}
+
+          {/* Clean Message Footer with Timestamp & Read Status Ticks */}
+          <div className="message-bubble-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px', marginTop: '4px', fontSize: '0.68rem', color: 'rgba(255, 255, 255, 0.45)', userSelect: 'none' }}>
+            <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            {msg.isSelf && (
+              <span 
+                title={activePeerExists ? "Seen by active recipient" : "Sent (Recipient away or offline)"}
+                style={{ color: activePeerExists ? 'var(--color-primary)' : 'rgba(255, 255, 255, 0.4)', fontWeight: 'bold', marginLeft: '2px' }}
+              >
+                {activePeerExists ? '✓✓' : '✓'}
+              </span>
+            )}
+          </div>
         </div>
 
         {!msg.isSelf && (
@@ -435,6 +452,13 @@ function App() {
       }
     };
   }, []);
+
+  const handleInputFocus = () => {
+    setTimeout(() => {
+      window.scrollTo(0, 0);
+      document.body.scrollTop = 0;
+    }, 100);
+  };
 
   useEffect(() => {
     roomUsersRef.current = roomUsers;
@@ -1314,16 +1338,26 @@ function App() {
 
         {/* Sidebar */}
         <div className={`chat-sidebar ${mobileSidebarOpen ? 'open' : ''}`}>
-          <div className="sidebar-header">
-            <div className="sidebar-logo">👻</div>
-            <div className="sidebar-title">
-              <h2>Ghost Message</h2>
-              <span>
-                <span className={`pulse-dot ${isConnected ? '' : 'disconnected'}`}></span>
-                {connectionStatus === 'connected' ? 'SECURE CHANNEL ACTIVE' : 
-                 connectionStatus === 'connecting' ? 'ESTABLISHING HANDSHAKE' : 'DISCONNECTED'}
-              </span>
+          <div className="sidebar-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <div className="sidebar-logo">👻</div>
+              <div className="sidebar-title">
+                <h2>Ghost Message</h2>
+                <span>
+                  <span className={`pulse-dot ${isConnected ? '' : 'disconnected'}`}></span>
+                  {connectionStatus === 'connected' ? 'SECURE CHANNEL ACTIVE' : 
+                   connectionStatus === 'connecting' ? 'ESTABLISHING HANDSHAKE' : 'DISCONNECTED'}
+                </span>
+              </div>
             </div>
+            <button 
+              className="btn-icon" 
+              onClick={() => window.location.reload()} 
+              title="Reload App / Refresh"
+              style={{ fontSize: '0.9rem' }}
+            >
+              🔄
+            </button>
           </div>
 
           <div className="user-list-section">
@@ -1503,11 +1537,19 @@ function App() {
                 {roomUsers.length} online
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+              <button 
+                className="btn-icon" 
+                onClick={() => window.location.reload()} 
+                title="Reload App / Refresh"
+                style={{ fontSize: '0.9rem' }}
+              >
+                🔄
+              </button>
               <button className="btn-icon btn-leave" onClick={handlePanic} style={{ color: 'var(--color-error)', borderColor: 'var(--color-error)' }} title="PANIC WIPE">
                 🚨
               </button>
-              <button className="btn-icon btn-leave" onClick={handleLeaveRoom}>
+              <button className="btn-icon btn-leave" onClick={handleLeaveRoom} title="Leave Room">
                 🚪
               </button>
             </div>
@@ -1551,6 +1593,8 @@ function App() {
                     onReact={handleReact}
                     isAppActive={isAppActive}
                     seenTimeout={seenTimeout}
+                    roomUsers={roomUsers}
+                    currentSessionId={sessionIdRef.current}
                   />
                 );
               })
@@ -1695,6 +1739,7 @@ function App() {
                     value={inputText}
                     onChange={handleInputChange}
                     onKeyDown={handleKeyDown}
+                    onFocus={handleInputFocus}
                     disabled={!isConnected}
                     maxLength={1000}
                     rows={1}
