@@ -464,15 +464,14 @@ function App() {
     roomUsersRef.current = roomUsers;
   }, [roomUsers]);
 
-  // Handle app state (active vs tab switched / backgrounded) & inform peers + local log
+  // Handle app state (active vs tab switched / window unfocused) & inform peers + local log
   useEffect(() => {
     const handleAppStateChange = () => {
-      const isHidden = document.hidden || document.visibilityState === 'hidden';
-      const active = !isHidden;
+      const active = document.visibilityState === 'visible' && document.hasFocus();
 
       setIsAppActive((prevActive) => {
         if (prevActive !== active) {
-          console.log(`[Ghost Chat] Tab active state changed to: ${active}`);
+          console.log(`[Ghost Chat] Window active state changed to: ${active}`);
 
           if (socketRef.current && socketRef.current.connected && roomId) {
             socketRef.current.emit('app-state-change', {
@@ -482,7 +481,7 @@ function App() {
             });
           }
 
-          // Log locally so user also sees their own tab switch notification
+          // Log locally so user also sees their own window active/unfocused notification
           setMessages((prev) => {
             const eventType = !active ? 'backgrounded' : 'returned';
             const lastMsg = prev[prev.length - 1];
@@ -491,7 +490,7 @@ function App() {
             }
 
             const text = !active 
-              ? `📱 You switched app / backgrounded tab.` 
+              ? `📱 You switched app / unfocused window.` 
               : `☀️ You returned to chat.`;
 
             return [...prev, {
@@ -513,6 +512,8 @@ function App() {
     document.addEventListener('visibilitychange', handleAppStateChange);
     window.addEventListener('pagehide', handleAppStateChange);
     window.addEventListener('pageshow', handleAppStateChange);
+
+    handleAppStateChange();
 
     return () => {
       window.removeEventListener('focus', handleAppStateChange);
@@ -1159,6 +1160,7 @@ function App() {
       setReplyingTo(null);
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
+        textareaRef.current.focus();
       }
 
     } catch (err) {
@@ -1746,6 +1748,8 @@ function App() {
                     type="submit" 
                     disabled={(!inputText.trim() && !attachment) || fileUploading || !isConnected}
                     title="Send Message"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onTouchStart={(e) => e.preventDefault()}
                   >
                     {fileUploading ? (
                       <svg className="spinner-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
