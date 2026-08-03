@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { io } from 'socket.io-client';
 import { 
@@ -1159,10 +1159,6 @@ function App() {
       setReplyingTo(null);
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
-        // Refocus to keep keyboard open on mobile
-        setTimeout(() => {
-          if (textareaRef.current) textareaRef.current.focus();
-        }, 10);
       }
 
     } catch (err) {
@@ -1750,14 +1746,6 @@ function App() {
                     type="submit" 
                     disabled={(!inputText.trim() && !attachment) || fileUploading || !isConnected}
                     title="Send Message"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onTouchStart={(e) => e.preventDefault()}
-                    onTouchEnd={(e) => {
-                      e.preventDefault();
-                      if ((inputText.trim() || attachment) && !fileUploading && isConnected) {
-                        handleSendMessage(e);
-                      }
-                    }}
                   >
                     {fileUploading ? (
                       <svg className="spinner-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
