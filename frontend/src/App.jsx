@@ -30,9 +30,27 @@ export const getAvatarForSocket = (socketId) => {
 };
 
 
+const getDeviceType = () => {
+  const ua = navigator.userAgent;
+  if (/(tablet|ipad|playbook|silk)|(android(?!.*mobi))/i.test(ua)) return 'Tablet';
+  if (/Mobile|iP(hone|od)|Android|BlackBerry|IEMobile|Kindle|Silk-Accelerated|(hpw|web)OS|Opera M(obi|ini)/i.test(ua)) return 'Mobile';
+  return 'Desktop';
+};
+
 // Sub-component for individual message bubbles handling E2EE self-destruction
-function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, onReply, onReact }) {
-  const [timeLeft, setTimeLeft] = useState(msg.selfDestruct || null);
+function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, onReply, onReact, isAppActive, seenTimeout }) {
+  const isSeenTimeoutOn = msg.seenTimeout === true || (msg.seenTimeout === undefined && seenTimeout === true);
+
+  const [timeLeft, setTimeLeft] = useState(() => {
+    if (!msg.selfDestruct) return null;
+    if (isSeenTimeoutOn) {
+      return msg.selfDestruct;
+    } else {
+      const elapsedSeconds = Math.floor((Date.now() - new Date(msg.timestamp).getTime()) / 1000);
+      return Math.max(0, msg.selfDestruct - elapsedSeconds);
+    }
+  });
+
   const [isExpiring, setIsExpiring] = useState(false);
   const [showTime, setShowTime] = useState(false);
   const [isRevealed, setIsRevealed] = useState(msg.isSelf || !msg.selfDestruct);
@@ -42,35 +60,69 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
   useEffect(() => {
     if (!msg.selfDestruct) return;
 
-    // Determine initial time left based on timestamp
-    const elapsedSeconds = Math.floor((Date.now() - new Date(msg.timestamp).getTime()) / 1000);
-    const initialTimeLeft = Math.max(0, msg.selfDestruct - elapsedSeconds);
-    setTimeLeft(initialTimeLeft);
+    if (!isSeenTimeoutOn) {
+      // Standard wall clock countdown (Default when Seen Timeout is OFF)
+      const elapsedSeconds = Math.floor((Date.now() - new Date(msg.timestamp).getTime()) / 1000);
+      const initialTimeLeft = Math.max(0, msg.selfDestruct - elapsedSeconds);
+      setTimeLeft(initialTimeLeft);
 
-    if (initialTimeLeft <= 0) {
-      setIsExpiring(true);
-      const destroyTimeout = setTimeout(() => {
-        onDestroy();
-      }, 500);
-      return () => clearTimeout(destroyTimeout);
-    }
+      if (initialTimeLeft <= 0) {
+        setIsExpiring(true);
+        const destroyTimeout = setTimeout(() => {
+          onDestroy();
+        }, 500);
+        return () => clearTimeout(destroyTimeout);
+      }
 
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          setIsExpiring(true);
-          setTimeout(() => {
-            onDestroy();
-          }, 500);
-          return 0;
+      const timer = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            setIsExpiring(true);
+            setTimeout(() => {
+              onDestroy();
+            }, 500);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      return () => clearInterval(timer);
+    } else {
+      // Seen Timeout is ON:
+      // Self destruct ONLY active after user seen / window is open.
+      // If tab switch or minimize (isAppActive === false), timer pauses.
+      if (timeLeft !== null && timeLeft <= 0) {
+        setIsExpiring(true);
+        const destroyTimeout = setTimeout(() => {
+          onDestroy();
+        }, 500);
+        return () => clearTimeout(destroyTimeout);
+      }
+
+      const timer = setInterval(() => {
+        if (!isAppActive) {
+          // Tab switched or window minimized -> pause countdown
+          return;
         }
-        return prev - 1;
-      });
-    }, 1000);
 
-    return () => clearInterval(timer);
-  }, [msg.selfDestruct, msg.timestamp, onDestroy]);
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            setIsExpiring(true);
+            setTimeout(() => {
+              onDestroy();
+            }, 500);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      return () => clearInterval(timer);
+    }
+  }, [msg.selfDestruct, msg.timestamp, isSeenTimeoutOn, isAppActive, onDestroy]);
 
   const formatTimeLeft = (sec) => {
     if (sec >= 3600) return `${Math.ceil(sec / 3600)}h`;
@@ -107,7 +159,7 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
               </svg>
             </button>
             {showPicker && (
-              <div className="reaction-picker" style={{ position: 'absolute', top: '-40px', left: '0', display: 'flex', gap: '8px', background: 'rgba(15,23,42,0.95)', padding: '6px 12px', borderRadius: '16px', zIndex: 10, border: '1px solid var(--color-border)', boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>
+              <div className="reaction-picker" style={{ position: 'absolute', top: '-40px', left: '0', display: 'flex', gap: '8px', background: '#0d1527', padding: '6px 12px', borderRadius: '16px', zIndex: 10, border: '1px solid var(--color-border)', boxShadow: '0 4px 12px rgba(0,0,0,0.8)' }}>
                 {emojis.map(e => <span key={e} style={{ cursor: 'pointer', fontSize: '1.2rem', transition: 'transform 0.1s' }} onMouseOver={ev => ev.target.style.transform = 'scale(1.2)'} onMouseOut={ev => ev.target.style.transform = 'scale(1)'} onClick={() => { onReact(msg.id, e); setShowPicker(false); }}>{e}</span>)}
               </div>
             )}
@@ -146,8 +198,11 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
             </div>
 
             {msg.selfDestruct && timeLeft !== null && (
-              <span className="self-destruct-indicator-inside" title="Self-destructing message">
-                {formatTimeLeft(timeLeft)}
+              <span 
+                className="self-destruct-indicator-inside" 
+                title={isSeenTimeoutOn ? (!isAppActive ? "Self-destruct paused (tab backgrounded)" : "Self-destruct (Seen timeout active)") : "Self-destructing message"}
+              >
+                {isSeenTimeoutOn && !isAppActive ? `⏸️ ${formatTimeLeft(timeLeft)}` : (isSeenTimeoutOn ? `👁️ ${formatTimeLeft(timeLeft)}` : formatTimeLeft(timeLeft))}
               </span>
             )}
           </div>
@@ -217,7 +272,7 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
               </svg>
             </button>
             {showPicker && (
-              <div className="reaction-picker" style={{ position: 'absolute', top: '-40px', right: '0', display: 'flex', gap: '8px', background: 'rgba(15,23,42,0.95)', padding: '6px 12px', borderRadius: '16px', zIndex: 10, border: '1px solid var(--color-border)', boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>
+              <div className="reaction-picker" style={{ position: 'absolute', top: '-40px', right: '0', display: 'flex', gap: '8px', background: '#0d1527', padding: '6px 12px', borderRadius: '16px', zIndex: 10, border: '1px solid var(--color-border)', boxShadow: '0 4px 12px rgba(0,0,0,0.8)' }}>
                 {emojis.map(e => <span key={e} style={{ cursor: 'pointer', fontSize: '1.2rem', transition: 'transform 0.1s' }} onMouseOver={ev => ev.target.style.transform = 'scale(1.2)'} onMouseOut={ev => ev.target.style.transform = 'scale(1)'} onClick={() => { onReact(msg.id, e); setShowPicker(false); }}>{e}</span>)}
               </div>
             )}
@@ -253,12 +308,16 @@ function App() {
   const [fileUploading, setFileUploading] = useState(false);
   const [typingUsers, setTypingUsers] = useState({}); // socketId -> nickname
   
-  // UI states
+  // UI & Feature states
   const [copySuccess, setCopySuccess] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [destructTimeInput, setDestructTimeInput] = useState(() => {
     return localStorage.getItem('ghost_destruct_time') || '30';
+  });
+  const [seenTimeout, setSeenTimeout] = useState(false);
+  const [isAppActive, setIsAppActive] = useState(() => {
+    return document.visibilityState === 'visible' && document.hasFocus();
   });
   const [isCreator, setIsCreator] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(() => {
@@ -269,10 +328,48 @@ function App() {
   const [showQR, setShowQR] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [showInputEmojiPicker, setShowInputEmojiPicker] = useState(false);
+  const [activeEmojiCat, setActiveEmojiCat] = useState('popular');
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
-  const inputEmojis = ['😀', '😂', '🔥', '👍', '❤️', '👻', '💀', '👽', '👀', '🎉', '💡', '🤔', '😎', '😡', '😭'];
+  const emojiCategories = [
+    {
+      id: 'popular',
+      name: '🔥 Popular',
+      emojis: ['😀', '😂', '🤣', '😊', '😍', '🥰', '😎', '🤔', '🤫', '🤐', '😴', '🤮', '🤯', '😱', '😭', '😡', '👍', '❤️', '🔥', '✨', '👻', '💀', '🎉', '🚀']
+    },
+    {
+      id: 'smileys',
+      name: '😀 Smileys',
+      emojis: ['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😋', '😜', '😝', '🤑', '🤗', '🤭', '🤫', '🤔', '🤐', '🤨', '😐', '😑', '😶', '😏', '😒', '🙄', '😬', '🤥', '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕', '🤢', '🤮', '🤧', '🥵', '🥶', '🥴', '😵', '🤯', '🤠', '🥳', '😎', '🤓', '🧐', '😕', '😟', '😮', '😯', '😲', '😳', '🥺', '😦', '😧', '😭', '😱', '😖', '😣', '😞', '😓', '😩', '😫', '🥱', '😤', '😡', '😠', '🤬', '😈', '👿']
+    },
+    {
+      id: 'ghost',
+      name: '👻 Ghost & Tech',
+      emojis: ['👻', '💀', '☠️', '👽', '👾', '🤖', '🎃', '🤡', '👺', '👹', '🎭', '🕵️', '🔒', '🔐', '🔑', '🛡️', '⏳', '⏱️', '💣', '💥', '🌫️', '👁️‍🗨️', '🌌', '⚡', '🔥', '🔮', '🧬', '🖥️', '💻', '📲', '🛰️']
+    },
+    {
+      id: 'gestures',
+      name: '👍 Gestures',
+      emojis: ['👍', '👎', '👊', '✊', '🤛', '🤜', '🤞', '✌️', '🤟', '🤘', '👌', '🤌', '🤏', '👈', '👉', '👆', '👇', '☝️', '✋', '🤚', '🖐️', '🖖', '👋', '🤙', '💪', '🦾', '🖕', '✍️', '🙏', '🫵', '🫡', '🤝', '👏', '🙌']
+    },
+    {
+      id: 'hearts',
+      name: '❤️ Reactions',
+      emojis: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '🔥', '💥', '✨', '⭐', '🌟', '💫', '💯', '🎉', '🎊', '🚀', '💡', '⚠️', '❌', '✅', '💬', '📢']
+    }
+  ];
+  
+  // Persistent Session ID Ref
+  const sessionIdRef = useRef(null);
+  if (!sessionIdRef.current && roomId) {
+    let sId = sessionStorage.getItem(`ghost_session_id_${roomId}`);
+    if (!sId) {
+      sId = Math.random().toString(36).substring(2, 11) + Math.random().toString(36).substring(2, 11);
+      sessionStorage.setItem(`ghost_session_id_${roomId}`, sId);
+    }
+    sessionIdRef.current = sId;
+  }
   
   // Refs
   const socketRef = useRef(null);
@@ -326,6 +423,35 @@ function App() {
   useEffect(() => {
     roomUsersRef.current = roomUsers;
   }, [roomUsers]);
+
+  // Handle app state (active vs tab switched) & inform peers
+  useEffect(() => {
+    const handleAppStateChange = () => {
+      const active = document.visibilityState === 'visible' && document.hasFocus();
+      setIsAppActive((prevActive) => {
+        if (prevActive !== active) {
+          if (socketRef.current && socketRef.current.connected && roomId) {
+            socketRef.current.emit('app-state-change', {
+              roomId,
+              isBackgrounded: !active,
+              deviceType: getDeviceType()
+            });
+          }
+        }
+        return active;
+      });
+    };
+
+    window.addEventListener('focus', handleAppStateChange);
+    window.addEventListener('blur', handleAppStateChange);
+    document.addEventListener('visibilitychange', handleAppStateChange);
+
+    return () => {
+      window.removeEventListener('focus', handleAppStateChange);
+      window.removeEventListener('blur', handleAppStateChange);
+      document.removeEventListener('visibilitychange', handleAppStateChange);
+    };
+  }, [roomId, connectionStatus]);
 
   // Handle unread count resets when window is focused
   useEffect(() => {
@@ -386,8 +512,6 @@ function App() {
     setMessages((prev) => prev.filter(m => m.id !== id));
   };
 
-  // Room information parsed at the top
-
   // Synchronize browser history / URL updates
   useEffect(() => {
     const handleLocationChange = () => {
@@ -398,8 +522,6 @@ function App() {
     return () => window.removeEventListener('popstate', handleLocationChange);
   }, []);
 
-
-
   // Clean up object URLs on unmount
   useEffect(() => {
     return () => {
@@ -407,9 +529,6 @@ function App() {
       objectUrlsRef.current = [];
     };
   }, []);
-
-  // In column-reverse layout, the browser naturally anchors to the bottom.
-  // We no longer need manual scrollIntoView calls.
 
   // Navigate helper
   const navigate = (path, hash = '') => {
@@ -459,11 +578,13 @@ function App() {
         socket.on('connect', () => {
           setConnectionStatus('connected');
           
-          // Send join signal with creator status checking from sessionStorage
+          // Send join signal with sessionId to support app switching without auto eviction
           socket.emit('join-room', {
             roomId,
             encryptedUsername: encNamePayload,
-            isCreator: sessionStorage.getItem(`creator_${roomId}`) === 'true'
+            isCreator: sessionStorage.getItem(`creator_${roomId}`) === 'true',
+            sessionId: sessionIdRef.current,
+            deviceType: getDeviceType()
           });
         });
 
@@ -476,7 +597,7 @@ function App() {
         });
 
         // Handle room configuration information from server
-        socket.on('room-info', ({ isCreator: serverIsCreator, selfDestruct }) => {
+        socket.on('room-info', ({ isCreator: serverIsCreator, selfDestruct, seenTimeout: serverSeenTimeout }) => {
           if (serverIsCreator) {
             sessionStorage.setItem(`creator_${roomId}`, 'true');
             setIsCreator(true);
@@ -484,11 +605,19 @@ function App() {
           if (selfDestruct !== undefined) {
             setDestructTimeInput(selfDestruct === null ? '' : String(selfDestruct));
           }
+          if (serverSeenTimeout !== undefined) {
+            setSeenTimeout(serverSeenTimeout);
+          }
         });
 
         // Handle setting updates broadcasted from creator
-        socket.on('settings-updated', ({ selfDestruct }) => {
-          setDestructTimeInput(selfDestruct === null ? '' : String(selfDestruct));
+        socket.on('settings-updated', ({ selfDestruct, seenTimeout: serverSeenTimeout }) => {
+          if (selfDestruct !== undefined) {
+            setDestructTimeInput(selfDestruct === null ? '' : String(selfDestruct));
+          }
+          if (serverSeenTimeout !== undefined) {
+            setSeenTimeout(serverSeenTimeout);
+          }
         });
 
         // Handle user list updates
@@ -496,25 +625,60 @@ function App() {
           const decryptedList = await Promise.all(
             userList.map(async (u) => {
               try {
-                if (u.socketId === socket.id) {
-                  return { socketId: u.socketId, nickname: nickname };
+                if (u.sessionId === sessionIdRef.current || u.socketId === socket.id) {
+                  return { sessionId: u.sessionId, socketId: u.socketId, nickname: nickname, status: u.status, deviceType: u.deviceType };
                 }
                 const decName = await decryptText(
                   u.encryptedUsername.iv,
                   u.encryptedUsername.ciphertext,
                   cryptoKeyRef.current
                 );
-                return { socketId: u.socketId, nickname: decName };
+                return { sessionId: u.sessionId, socketId: u.socketId, nickname: decName, status: u.status, deviceType: u.deviceType };
               } catch (err) {
-                return { socketId: u.socketId, nickname: "Anonymous Peer" };
+                return { sessionId: u.sessionId, socketId: u.socketId, nickname: "Anonymous Peer", status: u.status, deviceType: u.deviceType };
               }
             })
           );
           setRoomUsers(decryptedList);
         });
 
+        // Handle peer app state change
+        socket.on('peer-app-state', ({ socketId, sessionId, isBackgrounded, deviceType }) => {
+          const peer = roomUsersRef.current.find(u => u.sessionId === sessionId || u.socketId === socketId);
+          const peerName = peer ? peer.nickname : "A peer";
+          const devStr = deviceType ? ` (${deviceType})` : '';
+
+          setMessages((prev) => {
+            const eventType = isBackgrounded ? 'backgrounded' : 'returned';
+            const lastMsg = prev[prev.length - 1];
+            if (lastMsg && lastMsg.type === 'system' && lastMsg.appStatePeerId === sessionId && lastMsg.appStateType === eventType) {
+              return prev;
+            }
+
+            const text = isBackgrounded 
+              ? `📱 ${peerName} switched app / backgrounded tab${devStr}.`
+              : `☀️ ${peerName} returned to chat${devStr}.`;
+
+            return [...prev, {
+              id: Math.random().toString(36).substring(2, 9),
+              type: 'system',
+              appStatePeerId: sessionId,
+              appStateType: eventType,
+              text,
+              timestamp: new Date().toISOString()
+            }];
+          });
+
+          setRoomUsers((prev) => prev.map(u => {
+            if (u.sessionId === sessionId || u.socketId === socketId) {
+              return { ...u, status: isBackgrounded ? 'backgrounded' : 'active', deviceType };
+            }
+            return u;
+          }));
+        });
+
         // Handle new peer joining
-        socket.on('peer-joined', async ({ socketId, encryptedUsername }) => {
+        socket.on('peer-joined', async ({ socketId, sessionId, encryptedUsername }) => {
           try {
             const decName = await decryptText(
               encryptedUsername.iv,
@@ -534,8 +698,8 @@ function App() {
         });
 
         // Handle peer leaving (uses roomUsersRef to ensure nickname resolves correctly)
-        socket.on('peer-left', ({ socketId }) => {
-          const peer = roomUsersRef.current.find(u => u.socketId === socketId);
+        socket.on('peer-left', ({ socketId, sessionId }) => {
+          const peer = roomUsersRef.current.find(u => u.sessionId === sessionId || u.socketId === socketId);
           const peerName = peer ? peer.nickname : "A peer";
           
           setMessages((prev) => [...prev, {
@@ -545,7 +709,7 @@ function App() {
             timestamp: new Date().toISOString()
           }]);
           
-          setRoomUsers((prev) => prev.filter(u => u.socketId !== socketId));
+          setRoomUsers((prev) => prev.filter(u => u.sessionId !== sessionId && u.socketId !== socketId));
           
           // Clear typing status if they were typing
           setTypingUsers((prev) => {
@@ -643,6 +807,7 @@ function App() {
               file: fileInfo,
               timestamp: payload.timestamp || new Date().toISOString(),
               selfDestruct: payload.selfDestruct || null,
+              seenTimeout: payload.seenTimeout !== undefined ? payload.seenTimeout : seenTimeout,
               isSelf: false,
               replyTo: payload.replyTo || null
             }]);
@@ -845,6 +1010,7 @@ function App() {
         senderName: nickname,
         timestamp: new Date().toISOString(),
         selfDestruct: activeTimer,
+        seenTimeout: seenTimeout,
         replyTo: replyingTo ? {
           id: replyingTo.id,
           senderId: replyingTo.senderId,
@@ -895,6 +1061,7 @@ function App() {
         file: localFileInfo,
         timestamp: payload.timestamp,
         selfDestruct: activeTimer,
+        seenTimeout: seenTimeout,
         isSelf: true,
         replyTo: payload.replyTo || null
       }]);
@@ -1104,19 +1271,30 @@ function App() {
             <div className="user-list-scroll">
               {[...roomUsers]
                 .sort((a, b) => {
-                  if (a.socketId === socketRef.current?.id) return -1;
-                  if (b.socketId === socketRef.current?.id) return 1;
+                  const isASelf = a.sessionId === sessionIdRef.current || a.socketId === socketRef.current?.id;
+                  const isBSelf = b.sessionId === sessionIdRef.current || b.socketId === socketRef.current?.id;
+                  if (isASelf) return -1;
+                  if (isBSelf) return 1;
                   return a.nickname.localeCompare(b.nickname);
                 })
-                .map((user) => (
-                  <div 
-                    key={user.socketId} 
-                    className={`user-list-item ${user.socketId === socketRef.current?.id ? 'self' : ''}`}
-                  >
-                    <span className="user-avatar-icon">{getAvatarForSocket(user.socketId)}</span>
-                    <span>{user.nickname}</span>
-                  </div>
-                ))
+                .map((user) => {
+                  const isSelf = user.sessionId === sessionIdRef.current || user.socketId === socketRef.current?.id;
+                  const isBg = user.status === 'backgrounded';
+                  return (
+                    <div 
+                      key={user.sessionId || user.socketId} 
+                      className={`user-list-item ${isSelf ? 'self' : ''} ${isBg ? 'backgrounded' : ''}`}
+                    >
+                      <span className="user-avatar-icon">{getAvatarForSocket(user.socketId)}</span>
+                      <div className="user-info-col">
+                        <span className="user-nickname-text">{user.nickname}</span>
+                        <span className={`user-status-tag ${isBg ? 'bg' : 'online'}`}>
+                          {isBg ? `📱 Away (${user.deviceType || 'App Switched'})` : `🟢 Active`}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
               }
             </div>
           </div>
@@ -1155,40 +1333,75 @@ function App() {
 
           {/* E2EE Ephemeral Self-Destruct & Sound Settings */}
           <div className="room-link-card security-settings-card">
-            <h3>🛡️ Settings</h3>
+            <h3>🛡️ Security Settings</h3>
             {isCreator ? (
-              <div className="sidebar-field-group">
-                <label className="input-label" htmlFor="destruct-time-input">Self-Destruct (seconds)</label>
-                <input 
-                  id="destruct-time-input"
-                  className="custom-input sidebar-input" 
-                  type="number" 
-                  min="0"
-                  placeholder="0 to disable (Never)"
-                  value={destructTimeInput}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setDestructTimeInput(val);
-                    if (socketRef.current && connectionStatus === 'connected') {
-                      socketRef.current.emit('update-settings', {
-                        roomId,
-                        selfDestruct: val === '' ? null : parseInt(val)
-                      });
-                    }
-                  }}
-                />
-              </div>
-            ) : (
-              <div className="sidebar-field-group">
-                <span className="input-label">Self-Destruct (Set by Creator)</span>
-                <div className="destruct-status-badge">
-                  {destructTimeInput && parseInt(destructTimeInput) > 0 ? (
-                    <span>⏱️ Auto-delete: {destructTimeInput}s</span>
-                  ) : (
-                    <span>🔓 Auto-delete: Off</span>
-                  )}
+              <>
+                <div className="sidebar-field-group">
+                  <label className="input-label" htmlFor="destruct-time-input">Self-Destruct (seconds)</label>
+                  <input 
+                    id="destruct-time-input"
+                    className="custom-input sidebar-input" 
+                    type="number" 
+                    min="0"
+                    placeholder="0 to disable (Never)"
+                    value={destructTimeInput}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setDestructTimeInput(val);
+                      if (socketRef.current && connectionStatus === 'connected') {
+                        socketRef.current.emit('update-settings', {
+                          roomId,
+                          selfDestruct: val === '' ? null : parseInt(val),
+                          seenTimeout
+                        });
+                      }
+                    }}
+                  />
                 </div>
-              </div>
+                <div className="sidebar-field-group" style={{ marginTop: '0.5rem' }}>
+                  <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={seenTimeout} 
+                      onChange={(e) => {
+                        const val = e.target.checked;
+                        setSeenTimeout(val);
+                        if (socketRef.current && connectionStatus === 'connected') {
+                          socketRef.current.emit('update-settings', {
+                            roomId,
+                            selfDestruct: destructTimeInput === '' ? null : parseInt(destructTimeInput),
+                            seenTimeout: val
+                          });
+                        }
+                      }} 
+                    />
+                    <span style={{ fontSize: '0.85rem', color: 'var(--color-text-main)' }}>
+                      👁️ Enable Seen Timeout (Default OFF)
+                    </span>
+                  </label>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginTop: '0.2rem' }}>
+                    Timer only ticks down when window is active. Pauses on tab switch or minimize.
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="sidebar-field-group">
+                  <span className="input-label">Self-Destruct (Set by Creator)</span>
+                  <div className="destruct-status-badge">
+                    {destructTimeInput && parseInt(destructTimeInput) > 0 ? (
+                      <span>⏱️ Auto-delete: {destructTimeInput}s</span>
+                    ) : (
+                      <span>🔓 Auto-delete: Off</span>
+                    )}
+                  </div>
+                </div>
+                <div className="sidebar-field-group" style={{ marginTop: '0.35rem' }}>
+                  <div className="destruct-status-badge">
+                    <span>👁️ Seen Timeout: {seenTimeout ? 'Enabled (Active only)' : 'Disabled (Off)'}</span>
+                  </div>
+                </div>
+              </>
             )}
             
             <div className="sidebar-field-group" style={{ marginTop: '0.5rem' }}>
@@ -1273,6 +1486,8 @@ function App() {
                     isImageFile={isImageFile}
                     onReply={() => handleReplyClick(msg)}
                     onReact={handleReact}
+                    isAppActive={isAppActive}
+                    seenTimeout={seenTimeout}
                   />
                 );
               })
@@ -1372,33 +1587,38 @@ function App() {
                       😀
                     </button>
                     {showInputEmojiPicker && (
-                      <div className="input-emoji-picker" style={{
-                        position: 'absolute',
-                        bottom: '100%',
-                        left: '0',
-                        marginBottom: '10px',
-                        background: 'var(--color-bg-secondary)',
-                        border: '1px solid var(--color-border)',
-                        borderRadius: '8px',
-                        padding: '8px',
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(5, 1fr)',
-                        gap: '4px',
-                        zIndex: 100,
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
-                      }}>
-                        {inputEmojis.map(emoji => (
-                          <span 
-                            key={emoji} 
-                            style={{ cursor: 'pointer', fontSize: '1.25rem', padding: '4px', textAlign: 'center', transition: 'transform 0.1s' }}
-                            onMouseOver={ev => ev.target.style.transform = 'scale(1.2)'} 
-                            onMouseOut={ev => ev.target.style.transform = 'scale(1)'}
-                            onClick={() => handleEmojiSelect(emoji)}
-                          >
-                            {emoji}
-                          </span>
-                        ))}
-                      </div>
+                      <>
+                        <div 
+                          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }} 
+                          onClick={() => setShowInputEmojiPicker(false)} 
+                        />
+                        <div className="input-emoji-picker">
+                          <div className="emoji-category-bar">
+                            {emojiCategories.map(cat => (
+                              <button
+                                key={cat.id}
+                                type="button"
+                                className={`emoji-cat-btn ${activeEmojiCat === cat.id ? 'active' : ''}`}
+                                onClick={() => setActiveEmojiCat(cat.id)}
+                              >
+                                {cat.name}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="emoji-grid-container">
+                            {(emojiCategories.find(c => c.id === activeEmojiCat) || emojiCategories[0]).emojis.map(emoji => (
+                              <button 
+                                key={emoji} 
+                                type="button"
+                                className="emoji-grid-btn"
+                                onClick={() => handleEmojiSelect(emoji)}
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>
