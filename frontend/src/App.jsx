@@ -427,37 +427,46 @@ function App() {
 
   // Handle mobile visual viewport for keyboard sizing & scroll locking
   useEffect(() => {
-    const handleViewportResize = () => {
+    const handleViewportChange = () => {
       if (window.visualViewport) {
         document.documentElement.style.setProperty(
           '--app-height',
           `${window.visualViewport.height}px`
         );
+        document.documentElement.style.setProperty(
+          '--app-top',
+          `${window.visualViewport.offsetTop}px`
+        );
+      }
+      if (window.scrollY !== 0 || window.scrollX !== 0) {
         window.scrollTo(0, 0);
         document.body.scrollTop = 0;
       }
     };
     
-    handleViewportResize(); // init
+    handleViewportChange(); // init
     
     if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', handleViewportResize);
-      window.visualViewport.addEventListener('scroll', handleViewportResize);
+      window.visualViewport.addEventListener('resize', handleViewportChange);
+      window.visualViewport.addEventListener('scroll', handleViewportChange);
     }
+    
+    window.addEventListener('scroll', handleViewportChange);
     
     return () => {
       if (window.visualViewport) {
-        window.visualViewport.removeEventListener('resize', handleViewportResize);
-        window.visualViewport.removeEventListener('scroll', handleViewportResize);
+        window.visualViewport.removeEventListener('resize', handleViewportChange);
+        window.visualViewport.removeEventListener('scroll', handleViewportChange);
       }
+      window.removeEventListener('scroll', handleViewportChange);
     };
   }, []);
 
   const handleInputFocus = () => {
-    setTimeout(() => {
+    if (window.scrollY !== 0 || window.scrollX !== 0) {
       window.scrollTo(0, 0);
       document.body.scrollTop = 0;
-    }, 100);
+    }
   };
 
   useEffect(() => {
