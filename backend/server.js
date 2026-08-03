@@ -269,13 +269,24 @@ function handleUserRemoval(roomId, sessionId) {
   }
 }
 
-// Serve Frontend in Production
+// Serve Frontend in Production with Anti-Cache headers for index.html / sw.js
 if (process.env.NODE_ENV === 'production' || process.env.SERVE_FRONTEND === 'true') {
   const frontendBuildPath = path.join(__dirname, '../frontend/dist');
-  app.use(express.static(frontendBuildPath));
+  app.use(express.static(frontendBuildPath, {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.html') || filePath.endsWith('sw.js') || filePath.endsWith('manifest.json')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+      }
+    }
+  }));
   
   // Catch-all route to serve Index.html for React router support
   app.get('*', (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.sendFile(path.join(frontendBuildPath, 'index.html'));
   });
 } else {

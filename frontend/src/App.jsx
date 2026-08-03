@@ -200,9 +200,9 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
             {msg.selfDestruct && timeLeft !== null && (
               <span 
                 className="self-destruct-indicator-inside" 
-                title={isSeenTimeoutOn ? (!isAppActive ? "Self-destruct paused (tab backgrounded)" : "Self-destruct (Seen timeout active)") : "Self-destructing message"}
+                title={isSeenTimeoutOn ? (!isAppActive ? "Self-destruct paused (tab backgrounded)" : "Self-destruct (Seen timeout active ✓✓)") : "Self-destructing message"}
               >
-                {isSeenTimeoutOn && !isAppActive ? `⏸️ ${formatTimeLeft(timeLeft)}` : (isSeenTimeoutOn ? `👁️ ${formatTimeLeft(timeLeft)}` : formatTimeLeft(timeLeft))}
+                {isSeenTimeoutOn && !isAppActive ? `✓ ${formatTimeLeft(timeLeft)} (Paused)` : (isSeenTimeoutOn ? `✓✓ ${formatTimeLeft(timeLeft)}` : formatTimeLeft(timeLeft))}
               </span>
             )}
           </div>
@@ -329,33 +329,47 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [showInputEmojiPicker, setShowInputEmojiPicker] = useState(false);
   const [activeEmojiCat, setActiveEmojiCat] = useState('popular');
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const emojiCategories = [
     {
       id: 'popular',
-      name: '🔥 Popular',
+      icon: '🔥',
       emojis: ['😀', '😂', '🤣', '😊', '😍', '🥰', '😎', '🤔', '🤫', '🤐', '😴', '🤮', '🤯', '😱', '😭', '😡', '👍', '❤️', '🔥', '✨', '👻', '💀', '🎉', '🚀']
     },
     {
       id: 'smileys',
-      name: '😀 Smileys',
+      icon: '😀',
       emojis: ['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😋', '😜', '😝', '🤑', '🤗', '🤭', '🤫', '🤔', '🤐', '🤨', '😐', '😑', '😶', '😏', '😒', '🙄', '😬', '🤥', '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕', '🤢', '🤮', '🤧', '🥵', '🥶', '🥴', '😵', '🤯', '🤠', '🥳', '😎', '🤓', '🧐', '😕', '😟', '😮', '😯', '😲', '😳', '🥺', '😦', '😧', '😭', '😱', '😖', '😣', '😞', '😓', '😩', '😫', '🥱', '😤', '😡', '😠', '🤬', '😈', '👿']
     },
     {
       id: 'ghost',
-      name: '👻 Ghost & Tech',
+      icon: '👻',
       emojis: ['👻', '💀', '☠️', '👽', '👾', '🤖', '🎃', '🤡', '👺', '👹', '🎭', '🕵️', '🔒', '🔐', '🔑', '🛡️', '⏳', '⏱️', '💣', '💥', '🌫️', '👁️‍🗨️', '🌌', '⚡', '🔥', '🔮', '🧬', '🖥️', '💻', '📲', '🛰️']
     },
     {
       id: 'gestures',
-      name: '👍 Gestures',
+      icon: '👍',
       emojis: ['👍', '👎', '👊', '✊', '🤛', '🤜', '🤞', '✌️', '🤟', '🤘', '👌', '🤌', '🤏', '👈', '👉', '👆', '👇', '☝️', '✋', '🤚', '🖐️', '🖖', '👋', '🤙', '💪', '🦾', '🖕', '✍️', '🙏', '🫵', '🫡', '🤝', '👏', '🙌']
     },
     {
       id: 'hearts',
-      name: '❤️ Reactions',
+      icon: '❤️',
       emojis: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '🔥', '💥', '✨', '⭐', '🌟', '💫', '💯', '🎉', '🎊', '🚀', '💡', '⚠️', '❌', '✅', '💬', '📢']
     }
   ];
@@ -394,7 +408,7 @@ function App() {
     localStorage.setItem('ghost_sound_enabled', String(soundEnabled));
   }, [soundEnabled]);
 
-  // Handle mobile visual viewport for keyboard sizing
+  // Handle mobile visual viewport for keyboard sizing & scroll locking
   useEffect(() => {
     const handleViewportResize = () => {
       if (window.visualViewport) {
@@ -402,6 +416,8 @@ function App() {
           '--app-height',
           `${window.visualViewport.height}px`
         );
+        window.scrollTo(0, 0);
+        document.body.scrollTop = 0;
       }
     };
     
@@ -424,12 +440,16 @@ function App() {
     roomUsersRef.current = roomUsers;
   }, [roomUsers]);
 
-  // Handle app state (active vs tab switched) & inform peers
+  // Handle app state (active vs tab switched / backgrounded) & inform peers + local log
   useEffect(() => {
     const handleAppStateChange = () => {
-      const active = document.visibilityState === 'visible' && document.hasFocus();
+      const isHidden = document.hidden || document.visibilityState === 'hidden';
+      const active = !isHidden;
+
       setIsAppActive((prevActive) => {
         if (prevActive !== active) {
+          console.log(`[Ghost Chat] Tab active state changed to: ${active}`);
+
           if (socketRef.current && socketRef.current.connected && roomId) {
             socketRef.current.emit('app-state-change', {
               roomId,
@@ -437,6 +457,28 @@ function App() {
               deviceType: getDeviceType()
             });
           }
+
+          // Log locally so user also sees their own tab switch notification
+          setMessages((prev) => {
+            const eventType = !active ? 'backgrounded' : 'returned';
+            const lastMsg = prev[prev.length - 1];
+            if (lastMsg && lastMsg.type === 'system' && lastMsg.appStatePeerId === sessionIdRef.current && lastMsg.appStateType === eventType) {
+              return prev;
+            }
+
+            const text = !active 
+              ? `📱 You switched app / backgrounded tab.` 
+              : `☀️ You returned to chat.`;
+
+            return [...prev, {
+              id: Math.random().toString(36).substring(2, 9),
+              type: 'system',
+              appStatePeerId: sessionIdRef.current,
+              appStateType: eventType,
+              text,
+              timestamp: new Date().toISOString()
+            }];
+          });
         }
         return active;
       });
@@ -445,11 +487,15 @@ function App() {
     window.addEventListener('focus', handleAppStateChange);
     window.addEventListener('blur', handleAppStateChange);
     document.addEventListener('visibilitychange', handleAppStateChange);
+    window.addEventListener('pagehide', handleAppStateChange);
+    window.addEventListener('pageshow', handleAppStateChange);
 
     return () => {
       window.removeEventListener('focus', handleAppStateChange);
       window.removeEventListener('blur', handleAppStateChange);
       document.removeEventListener('visibilitychange', handleAppStateChange);
+      window.removeEventListener('pagehide', handleAppStateChange);
+      window.removeEventListener('pageshow', handleAppStateChange);
     };
   }, [roomId, connectionStatus]);
 
@@ -679,7 +725,15 @@ function App() {
 
         // Handle new peer joining
         socket.on('peer-joined', async ({ socketId, sessionId, encryptedUsername }) => {
+          if (!encryptedUsername || typeof encryptedUsername !== 'object' || !encryptedUsername.iv || !encryptedUsername.ciphertext) {
+            return;
+          }
           try {
+            if (!cryptoKeyRef.current && encryptionKeyB64) {
+              cryptoKeyRef.current = await importKey(encryptionKeyB64);
+            }
+            if (!cryptoKeyRef.current) return;
+
             const decName = await decryptText(
               encryptedUsername.iv,
               encryptedUsername.ciphertext,
@@ -741,7 +795,16 @@ function App() {
 
         // Handle message receipt
         socket.on('receive-message', async ({ senderId, encryptedPayload }) => {
+          if (!encryptedPayload || typeof encryptedPayload !== 'object' || !encryptedPayload.iv || !encryptedPayload.ciphertext) {
+            return;
+          }
+
           try {
+            if (!cryptoKeyRef.current && encryptionKeyB64) {
+              cryptoKeyRef.current = await importKey(encryptionKeyB64);
+            }
+            if (!cryptoKeyRef.current) return;
+
             // Decrypt the payload
             const payloadStr = await decryptText(
               encryptedPayload.iv,
@@ -1376,7 +1439,7 @@ function App() {
                       }} 
                     />
                     <span style={{ fontSize: '0.85rem', color: 'var(--color-text-main)' }}>
-                      👁️ Enable Seen Timeout (Default OFF)
+                      ✓✓ Enable Seen Timeout
                     </span>
                   </label>
                   <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginTop: '0.2rem' }}>
@@ -1398,7 +1461,7 @@ function App() {
                 </div>
                 <div className="sidebar-field-group" style={{ marginTop: '0.35rem' }}>
                   <div className="destruct-status-badge">
-                    <span>👁️ Seen Timeout: {seenTimeout ? 'Enabled (Active only)' : 'Disabled (Off)'}</span>
+                    <span>✓✓ Seen Timeout: {seenTimeout ? 'Enabled' : 'Disabled'}</span>
                   </div>
                 </div>
               </>
@@ -1600,8 +1663,9 @@ function App() {
                                 type="button"
                                 className={`emoji-cat-btn ${activeEmojiCat === cat.id ? 'active' : ''}`}
                                 onClick={() => setActiveEmojiCat(cat.id)}
+                                title={cat.id}
                               >
-                                {cat.name}
+                                {cat.icon}
                               </button>
                             ))}
                           </div>
@@ -1693,6 +1757,12 @@ function App() {
   // Router layout dispatcher
   return (
     <div className={`app-container ${roomId && hasJoined ? 'chat-mode' : ''}`}>
+      {!isOnline && (
+        <div className="offline-banner">
+          <span className="offline-icon">📡</span>
+          <span>You are currently offline. Ghost channel will reconnect when internet returns.</span>
+        </div>
+      )}
       {!roomId ? (
         renderLobby()
       ) : !hasJoined ? (

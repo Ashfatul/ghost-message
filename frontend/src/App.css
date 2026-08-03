@@ -33,13 +33,38 @@
   padding: 0;
 }
 
-body {
+html, body {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   font-family: var(--font-sans);
   background-color: var(--bg-base);
   color: var(--color-text-main);
-  overflow-x: hidden;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  touch-action: manipulation;
+}
+
+/* Offline Banner Notification */
+.offline-banner {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.95), rgba(225, 29, 72, 0.95));
+  color: #ffffff;
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+  animation: slideDown 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 1000;
 }
 
 /* Scrollbar Styling */
@@ -71,11 +96,16 @@ body {
 }
 
 .app-container.chat-mode {
-  height: 100vh;
+  height: 100%;
   height: var(--app-height, 100dvh);
-  max-height: 100vh;
+  max-height: 100%;
   max-height: var(--app-height, 100dvh);
   overflow: hidden;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
 }
 
 /* Grid overlay to give high-tech look */
@@ -615,6 +645,8 @@ button, input {
   flex: 1;
   padding: 1.5rem;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
   display: flex;
   flex-direction: column-reverse;
   gap: 1.25rem; /* Increased gap between message blocks */
@@ -1642,19 +1674,17 @@ button, input {
 .emoji-cat-btn {
   background: transparent;
   border: none;
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
-  padding: 4px 8px;
-  border-radius: 6px;
+  font-size: 1.15rem;
+  padding: 4px 10px;
+  border-radius: 8px;
   cursor: pointer;
   white-space: nowrap;
   transition: var(--transition-smooth);
 }
 
 .emoji-cat-btn:hover, .emoji-cat-btn.active {
-  background: rgba(0, 242, 254, 0.15);
-  color: var(--color-primary);
-  font-weight: 600;
+  background: rgba(0, 242, 254, 0.2);
+  transform: scale(1.15);
 }
 
 .emoji-grid-container {

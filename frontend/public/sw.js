@@ -1,18 +1,17 @@
-const CACHE_NAME = 'ghost-message-cache-v1';
+const CACHE_NAME = 'ghost-message-cache-v2';
 const ASSETS = [
   '/',
-  '/index.html',
   '/manifest.json',
   '/icon.svg'
 ];
 
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(ASSETS);
     })
   );
-  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
@@ -41,27 +40,34 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // For HTML document navigation, always try Network FIRST so fresh app version loads
+  if (event.request.mode === 'navigate' || (event.request.headers.get('accept') && event.request.headers.get('accept').includes('text/html'))) {
+    event.respondWith(
+      fetch(event.request, { cache: 'no-store' })
+        .then((response) => {
+          return response;
+        })
+        .catch(() => {
+          return caches.match('/') || caches.match('/index.html');
+        })
+    );
+    return;
+  }
+
+  // For static assets, try Network first, fall back to Cache
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        // If request is successful, clone and put it in cache
-        const resClone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, resClone);
-        });
+        if (response.status === 200) {
+          const resClone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, resClone);
+          });
+        }
         return response;
       })
       .catch(() => {
-        // If network request fails, look in cache
-        return caches.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) {
-            return cachedResponse;
-          }
-          // If HTML request fails, return cached index.html
-          if (event.request.headers.get('accept') && event.request.headers.get('accept').includes('text/html')) {
-            return caches.match('/');
-          }
-        });
+        return caches.match(event.request);
       })
   );
 });
