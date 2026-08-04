@@ -47,21 +47,23 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
     return roomUsers.some(u => u.status === 'active' && u.sessionId !== currentSessionId);
   }, [roomUsers, currentSessionId]);
 
-  // Is timer active for Seen Timeout?
-  // Sender: Timer ONLY ticks down when active recipient peer exists in room!
-  // Recipient: Timer ONLY ticks down when local tab is active (isAppActive)!
-  const isSeenTimerActive = msg.isSelf ? activePeerExists : isAppActive;
+  // Determine starting timestamp for self-destruct countdown calculation:
+  // If seenTimeout is OFF, use creation timestamp (msg.timestamp).
+  // If seenTimeout is ON, use msg.seenAt (or null if not seen yet).
+  const effectiveStart = !isSeenTimeoutOn 
+    ? new Date(msg.timestamp).getTime() 
+    : (msg.seenAt || null);
 
-  const [timeLeft, setTimeLeft] = useState(() => {
+  const calculateTimeLeft = () => {
     if (!msg.selfDestruct) return null;
-    if (isSeenTimeoutOn) {
-      return msg.selfDestruct;
-    } else {
-      const elapsedSeconds = Math.floor((Date.now() - new Date(msg.timestamp).getTime()) / 1000);
-      return Math.max(0, msg.selfDestruct - elapsedSeconds);
+    if (!effectiveStart) {
+      return msg.selfDestruct; // Unseen: stays at full duration until seen
     }
-  });
+    const elapsedSeconds = Math.floor((Date.now() - effectiveStart) / 1000);
+    return Math.max(0, msg.selfDestruct - elapsedSeconds);
+  };
 
+  const [timeLeft, setTimeLeft] = useState(calculateTimeLeft);
   const [isExpiring, setIsExpiring] = useState(false);
   const [showTime, setShowTime] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
@@ -70,68 +72,37 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
   useEffect(() => {
     if (!msg.selfDestruct) return;
 
-    if (!isSeenTimeoutOn) {
-      // Standard wall clock countdown (Default when Seen Timeout is OFF)
-      const elapsedSeconds = Math.floor((Date.now() - new Date(msg.timestamp).getTime()) / 1000);
-      const initialTimeLeft = Math.max(0, msg.selfDestruct - elapsedSeconds);
-      setTimeLeft(initialTimeLeft);
+    const initialLeft = calculateTimeLeft();
+    setTimeLeft(initialLeft);
 
-      if (initialTimeLeft <= 0) {
-        setIsExpiring(true);
-        const destroyTimeout = setTimeout(() => {
-          onDestroy();
-        }, 500);
-        return () => clearTimeout(destroyTimeout);
-      }
-
-      const timer = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            setIsExpiring(true);
-            setTimeout(() => {
-              onDestroy();
-            }, 500);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-
-      return () => clearInterval(timer);
-    } else {
-      // Seen Timeout is ON:
-      // Countdown ONLY ticks when recipient is active and viewing!
-      if (timeLeft !== null && timeLeft <= 0) {
-        setIsExpiring(true);
-        const destroyTimeout = setTimeout(() => {
-          onDestroy();
-        }, 500);
-        return () => clearTimeout(destroyTimeout);
-      }
-
-      const timer = setInterval(() => {
-        if (!isSeenTimerActive) {
-          // Recipient away or tab backgrounded -> pause countdown
-          return;
-        }
-
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            setIsExpiring(true);
-            setTimeout(() => {
-              onDestroy();
-            }, 500);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-
-      return () => clearInterval(timer);
+    if (effectiveStart && initialLeft <= 0) {
+      setIsExpiring(true);
+      const destroyTimeout = setTimeout(() => {
+        onDestroy();
+      }, 500);
+      return () => clearTimeout(destroyTimeout);
     }
-  }, [msg.selfDestruct, msg.timestamp, isSeenTimeoutOn, isSeenTimerActive, onDestroy]);
+
+    const timer = setInterval(() => {
+      if (!effectiveStart) {
+        // Message not seen yet: keep paused at full duration
+        return;
+      }
+
+      const left = calculateTimeLeft();
+      setTimeLeft(left);
+
+      if (left <= 0) {
+        clearInterval(timer);
+        setIsExpiring(true);
+        setTimeout(() => {
+          onDestroy();
+        }, 500);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [msg.selfDestruct, msg.timestamp, effectiveStart, onDestroy]);
 
   const formatTimeLeft = (sec) => {
     if (sec >= 3600) return `${Math.ceil(sec / 3600)}h`;
@@ -204,9 +175,9 @@ function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, o
             {msg.selfDestruct && timeLeft !== null && (
               <span 
                 className="self-destruct-indicator-inside" 
-                title={isSeenTimeoutOn ? (!isSeenTimerActive ? "Self-destruct paused (recipient away / tab backgrounded)" : "Self-destruct countdown active") : "Self-destructing message"}
+                title={isSeenTimeoutOn ? (!effectiveStart ? "Self-destruct paused until seen" : "Self-destruct countdown active") : "Self-destructing message"}
               >
-                {isSeenTimeoutOn && !isSeenTimerActive ? `⏸️ ${formatTimeLeft(timeLeft)}` : `⏱️ ${formatTimeLeft(timeLeft)}`}
+                {isSeenTimeoutOn && !effectiveStart ? `⏸️ ${formatTimeLeft(timeLeft)}` : `⏱️ ${formatTimeLeft(timeLeft)}`}
               </span>
             )}
           </div>
@@ -334,7 +305,7 @@ function App() {
   });
   const [seenTimeout, setSeenTimeout] = useState(false);
   const [isAppActive, setIsAppActive] = useState(() => {
-    return document.visibilityState === 'visible' && document.hasFocus();
+    return document.visibilityState === 'visible';
   });
   const [isCreator, setIsCreator] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(() => {
@@ -391,14 +362,15 @@ function App() {
     }
   ];
   
-  // Persistent Session ID Ref
+  // Persistent Session ID Ref (preserves session on mobile app switch / memory reload)
   const sessionIdRef = useRef(null);
   if (!sessionIdRef.current && roomId) {
-    let sId = sessionStorage.getItem(`ghost_session_id_${roomId}`);
+    let sId = sessionStorage.getItem(`ghost_session_id_${roomId}`) || localStorage.getItem(`ghost_session_id_${roomId}`);
     if (!sId) {
       sId = Math.random().toString(36).substring(2, 11) + Math.random().toString(36).substring(2, 11);
-      sessionStorage.setItem(`ghost_session_id_${roomId}`, sId);
     }
+    sessionStorage.setItem(`ghost_session_id_${roomId}`, sId);
+    localStorage.setItem(`ghost_session_id_${roomId}`, sId);
     sessionIdRef.current = sId;
   }
   
@@ -476,7 +448,7 @@ function App() {
   // Handle app state (active vs tab switched / window unfocused) & inform peers + local log
   useEffect(() => {
     const handleAppStateChange = () => {
-      const active = document.visibilityState === 'visible' && document.hasFocus();
+      const active = document.visibilityState === 'visible';
 
       setIsAppActive((prevActive) => {
         if (prevActive !== active) {
@@ -499,7 +471,7 @@ function App() {
             }
 
             const text = !active 
-              ? `📱 You switched app / unfocused window.` 
+              ? `📱 You switched app / backgrounded tab.` 
               : `☀️ You returned to chat.`;
 
             return [...prev, {
@@ -532,6 +504,35 @@ function App() {
       window.removeEventListener('pageshow', handleAppStateChange);
     };
   }, [roomId, connectionStatus]);
+
+  // Check active peer presence in room for sender-side seen initialization
+  const activePeerExists = useMemo(() => {
+    if (!roomUsers || !Array.isArray(roomUsers)) return false;
+    return roomUsers.some(u => u.status === 'active' && u.sessionId !== sessionIdRef.current);
+  }, [roomUsers]);
+
+  // Transition unseen messages to seen once local user is active (received msgs) or active peer exists (sent msgs)
+  useEffect(() => {
+    setMessages((prev) => {
+      let updated = false;
+      const now = Date.now();
+      const next = prev.map((m) => {
+        const isSeenOn = m.seenTimeout === true || (m.seenTimeout === undefined && seenTimeout === true);
+        if (m.selfDestruct && isSeenOn && !m.seenAt) {
+          if (!m.isSelf && isAppActive) {
+            updated = true;
+            return { ...m, seenAt: now };
+          }
+          if (m.isSelf && activePeerExists) {
+            updated = true;
+            return { ...m, seenAt: now };
+          }
+        }
+        return m;
+      });
+      return updated ? next : prev;
+    });
+  }, [isAppActive, activePeerExists, seenTimeout]);
 
   // Handle unread count resets when window is focused
   useEffect(() => {
@@ -895,6 +896,10 @@ function App() {
               playNotificationSound();
             }
 
+            const isSeenOn = payload.seenTimeout !== undefined ? payload.seenTimeout : seenTimeout;
+            const currentIsActive = document.visibilityState === 'visible';
+            const initialSeenAt = isSeenOn ? (currentIsActive ? Date.now() : null) : Date.now();
+
             setMessages((prev) => [...prev, {
               id: payload.id || Math.random().toString(36).substring(2, 9),
               senderId,
@@ -904,7 +909,8 @@ function App() {
               file: fileInfo,
               timestamp: payload.timestamp || new Date().toISOString(),
               selfDestruct: payload.selfDestruct || null,
-              seenTimeout: payload.seenTimeout !== undefined ? payload.seenTimeout : seenTimeout,
+              seenTimeout: isSeenOn,
+              seenAt: initialSeenAt,
               isSelf: false,
               replyTo: payload.replyTo || null
             }]);
@@ -983,6 +989,10 @@ function App() {
 
   // Action: Leaving room
   const handleLeaveRoom = () => {
+    if (roomId) {
+      sessionStorage.removeItem(`ghost_session_id_${roomId}`);
+      localStorage.removeItem(`ghost_session_id_${roomId}`);
+    }
     if (socketRef.current) {
       socketRef.current.emit('leave-room');
       socketRef.current.disconnect();
@@ -1149,6 +1159,8 @@ function App() {
       });
 
       // Add to local message history
+      const initialSeenAt = seenTimeout ? (activePeerExists ? Date.now() : null) : Date.now();
+
       setMessages((prev) => [...prev, {
         id: payload.id,
         senderId: socketRef.current.id,
@@ -1159,6 +1171,7 @@ function App() {
         timestamp: payload.timestamp,
         selfDestruct: activeTimer,
         seenTimeout: seenTimeout,
+        seenAt: initialSeenAt,
         isSelf: true,
         replyTo: payload.replyTo || null
       }]);

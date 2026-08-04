@@ -68,6 +68,14 @@ io.on('connection', (socket) => {
     
     const room = rooms.get(roomId);
     
+    // Clean up any existing user entries with same socketId under a different sessionId
+    for (const [sId, u] of room.users.entries()) {
+      if (u.socketId === socket.id && sId !== finalSessionId) {
+        if (u.disconnectTimer) clearTimeout(u.disconnectTimer);
+        room.users.delete(sId);
+      }
+    }
+
     // Check if user session already exists in room (e.g. reconnect after app switch / temporary network drop)
     if (room.users.has(finalSessionId)) {
       const existingUser = room.users.get(finalSessionId);
