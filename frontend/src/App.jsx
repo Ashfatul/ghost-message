@@ -37,6 +37,58 @@ const getDeviceType = () => {
   return 'Desktop';
 };
 
+const sendNotification = async (title, options = {}) => {
+  try {
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
+      return;
+    }
+
+    // Try Service Worker registration first (Required on mobile iOS Safari / Android Chrome)
+    if ('serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg && reg.showNotification) {
+          await reg.showNotification(title, {
+            icon: '/icon.svg',
+            badge: '/icon.svg',
+            vibrate: [200, 100, 200],
+            ...options
+          });
+          return;
+        }
+      } catch (swErr) {
+        console.warn("ServiceWorker showNotification failed, trying fallback:", swErr);
+      }
+    }
+
+    // Fallback to standard Notification constructor
+    if (window.Notification) {
+      const n = new Notification(title, {
+        icon: '/icon.svg',
+        ...options
+      });
+      n.onclick = () => {
+        window.focus();
+        n.close();
+      };
+    }
+  } catch (err) {
+    console.error("[Ghost Chat] Notification trigger error:", err);
+  }
+};
+
+const requestNotificationPermission = async () => {
+  if (window.Notification && Notification.permission === 'default') {
+    try {
+      const perm = await Notification.requestPermission();
+      return perm;
+    } catch (e) {
+      console.error("Permission request failed:", e);
+    }
+  }
+  return window.Notification ? Notification.permission : 'denied';
+};
+
 // Sub-component for individual message bubbles handling E2EE self-destruction
 function MessageBubble({ msg, isGrouped, onDestroy, onImageClick, isImageFile, onReply, onReact, isAppActive, seenTimeout, roomUsers, currentSessionId }) {
   const isSeenTimeoutOn = msg.seenTimeout === true || (msg.seenTimeout === undefined && seenTimeout === true);
@@ -374,16 +426,57 @@ function App() {
     sessionIdRef.current = sId;
   }
   
-  // Refs
+  // Refs & Scroll to bottom state
   const socketRef = useRef(null);
   const cryptoKeyRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const messagesFeedRef = useRef(null);
   const isTypingRef = useRef(false);
   const typingTimeoutRef = useRef(null);
   const objectUrlsRef = useRef([]);
   const roomUsersRef = useRef([]);
   const prevMessagesCountRef = useRef(0);
   const textareaRef = useRef(null);
+  
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
+  const [newMessagesWhileScrolled, setNewMessagesWhileScrolled] = useState(0);
+
+  const handleFeedScroll = () => {
+    if (!messagesFeedRef.current) return;
+    const feed = messagesFeedRef.current;
+    // flex-direction: column-reverse scroll offset check
+    const isScrolledUp = Math.abs(feed.scrollTop) > 80;
+    setShowScrollBottomBtn(isScrolledUp);
+
+    if (!isScrolledUp) {
+      setNewMessagesWhileScrolled(0);
+    }
+  };
+
+  const scrollToBottom = () => {
+    if (messagesFeedRef.current) {
+      messagesFeedRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      setShowScrollBottomBtn(false);
+      setNewMessagesWhileScrolled(0);
+    }
+  };
+
+  // Auto scroll or increment unread counter when messages arrive
+  useEffect(() => {
+    if (!messagesFeedRef.current || messages.length === 0) return;
+    const feed = messagesFeedRef.current;
+    const isScrolledUp = Math.abs(feed.scrollTop) > 80;
+
+    if (!isScrolledUp) {
+      feed.scrollTo({ top: 0, behavior: 'smooth' });
+      setNewMessagesWhileScrolled(0);
+    } else {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg && !lastMsg.isSelf && lastMsg.type !== 'system') {
+        setNewMessagesWhileScrolled((prev) => prev + 1);
+      }
+    }
+  }, [messages.length]);
   
   const destructTimeInputRef = useRef(destructTimeInput);
 
@@ -410,9 +503,11 @@ function App() {
           `${window.visualViewport.offsetTop}px`
         );
       }
-      if (window.scrollY !== 0 || window.scrollX !== 0) {
-        window.scrollTo(0, 0);
-        document.body.scrollTop = 0;
+      if (roomId && hasJoined) {
+        if (window.scrollY !== 0 || window.scrollX !== 0) {
+          window.scrollTo(0, 0);
+          document.body.scrollTop = 0;
+        }
       }
     };
     
@@ -423,7 +518,9 @@ function App() {
       window.visualViewport.addEventListener('scroll', handleViewportChange);
     }
     
-    window.addEventListener('scroll', handleViewportChange);
+    if (roomId && hasJoined) {
+      window.addEventListener('scroll', handleViewportChange);
+    }
     
     return () => {
       if (window.visualViewport) {
@@ -432,7 +529,7 @@ function App() {
       }
       window.removeEventListener('scroll', handleViewportChange);
     };
-  }, []);
+  }, [roomId, hasJoined]);
 
   const handleInputFocus = () => {
     if (window.scrollY !== 0 || window.scrollX !== 0) {
@@ -879,17 +976,12 @@ function App() {
             }
             
             // Push Notification & Sound Logic
-            if (document.visibilityState !== 'visible' || !document.hasFocus()) {
+            if (document.visibilityState !== 'visible') {
               setUnreadCount((prev) => prev + 1);
-              if (window.Notification && Notification.permission === 'granted') {
-                const notification = new Notification(`💬 New Message from ${payload.senderName || 'Anonymous'}`, {
-                  body: payload.text || (payload.file ? '📁 Shared a secure file' : ''),
-                });
-                notification.onclick = () => {
-                  window.focus();
-                  notification.close();
-                };
-              }
+              sendNotification(`💬 ${payload.senderName || 'Ghost Peer'}`, {
+                body: payload.text || (payload.file ? '📁 Shared a secure file' : 'Sent a message'),
+                tag: 'ghost-message-new'
+              });
             }
 
             if (localStorage.getItem('ghost_sound_enabled') !== 'false') {
@@ -950,6 +1042,9 @@ function App() {
     e.preventDefault();
     if (!nickname.trim()) return;
     
+    // Explicit user gesture permission request for mobile notifications
+    requestNotificationPermission();
+
     // Save nickname
     localStorage.setItem('ghost_nickname', nickname);
     
@@ -970,6 +1065,9 @@ function App() {
     e.preventDefault();
     if (!nickname.trim()) return;
     
+    // Explicit user gesture permission request for mobile notifications
+    requestNotificationPermission();
+
     localStorage.setItem('ghost_nickname', nickname);
     // Sync local isCreator state from sessionStorage if they had opened/created it in the same tab session
     setIsCreator(sessionStorage.getItem(`creator_${roomId}`) === 'true');
@@ -1531,6 +1629,22 @@ function App() {
                 <span>Notification Sound</span>
               </label>
             </div>
+            {window.Notification && Notification.permission !== 'granted' && (
+              <div className="sidebar-field-group" style={{ marginTop: '0.5rem' }}>
+                <button 
+                  type="button"
+                  className="btn-secondary" 
+                  style={{ fontSize: '0.78rem', padding: '0.4rem 0.6rem', borderColor: 'var(--color-primary)', color: 'var(--color-primary)', width: '100%' }}
+                  onClick={async () => {
+                    const perm = await requestNotificationPermission();
+                    if (perm === 'granted') alert("Push Notifications enabled!");
+                    else if (perm === 'denied') alert("Notifications blocked by browser settings.");
+                  }}
+                >
+                  🔔 Enable Push Notifications
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="sidebar-footer">
@@ -1576,7 +1690,11 @@ function App() {
           </div>
 
           {/* Messages List */}
-          <div className="messages-feed">
+          <div 
+            ref={messagesFeedRef} 
+            className="messages-feed"
+            onScroll={handleFeedScroll}
+          >
             {messages.length === 0 ? (
               <div className="chat-empty">
                 <div className="chat-empty-icon">🔒</div>
@@ -1620,6 +1738,20 @@ function App() {
               })
             )}
           </div>
+
+          {/* Floating Scroll To Bottom Button */}
+          {showScrollBottomBtn && (
+            <button 
+              className="btn-scroll-bottom" 
+              onClick={scrollToBottom}
+              title="Scroll to latest messages"
+            >
+              <span>↓</span>
+              {newMessagesWhileScrolled > 0 
+                ? `${newMessagesWhileScrolled} new ${newMessagesWhileScrolled === 1 ? 'message' : 'messages'}` 
+                : 'Scroll to bottom'}
+            </button>
+          )}
 
           {/* Typing status bar */}
           <div className="typing-status-indicator">
